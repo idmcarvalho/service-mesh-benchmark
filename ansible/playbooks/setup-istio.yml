@@ -1,0 +1,94 @@
+---
+- name: Setup Istio Service Mesh
+  hosts: master
+  become: yes
+  vars:
+    istio_version: "1.20.0"
+    istio_download_url: "https://github.com/istio/istio/releases/download/{{ istio_version }}/istio-{{ istio_version }}-linux-amd64.tar.gz"
+
+  tasks:
+    - name: Download Istio
+      get_url:
+        url: "{{ istio_download_url }}"
+        dest: "/tmp/istio-{{ istio_version }}.tar.gz"
+        mode: '0644'
+
+    - name: Extract Istio
+      unarchive:
+        src: "/tmp/istio-{{ istio_version }}.tar.gz"
+        dest: "/tmp/"
+        remote_src: yes
+
+    - name: Copy istioctl to /usr/local/bin
+      copy:
+        src: "/tmp/istio-{{ istio_version }}/bin/istioctl"
+        dest: "/usr/local/bin/istioctl"
+        mode: '0755'
+        remote_src: yes
+
+    - name: Check if Istio is already installed
+      shell: kubectl get namespace istio-system
+      register: istio_namespace
+      ignore_errors: yes
+      become_user: ubuntu
+
+    - name: Install Istio with default profile
+      shell: |
+        /usr/local/bin/istioctl install --set profile=default -y
+      when: istio_namespace.rc != 0
+      become_user: ubuntu
+      environment:
+        KUBECONFIG: "/home/ubuntu/.kube/config"
+
+    - name: Enable automatic sidecar injection for default namespace
+      shell: kubectl label namespace default istio-injection=enabled --overwrite
+      become_user: ubuntu
+      environment:
+        KUBECONFIG: "/home/ubuntu/.kube/config"
+
+    - name: Enable automatic sidecar injection for benchmark namespaces
+      shell: |
+        kubectl label namespace http-benchmark istio-injection=enabled --overwrite || true
+        kubectl label namespace grpc-benchmark istio-injection=enabled --overwrite || true
+        kubectl label namespace websocket-benchmark istio-injection=enabled --overwrite || true
+        kubectl label namespace db-benchmark istio-injection=enabled --overwrite || true
+      become_user: ubuntu
+      environment:
+        KUBECONFIG: "/home/ubuntu/.kube/config"
+      ignore_errors: yes
+
+    - name: Deploy Istio addons (Kiali, Prometheus, Grafana, Jaeger)
+      shell: |
+        kubectl apply -f /tmp/istio-{{ istio_version}}/samples/addons/
+      become_user: ubuntu
+      environment:
+        KUBECONFIG: "/home/ubuntu/.kube/config"
+      ignore_errors: yes
+
+    - name: Wait for Istio components to be ready
+      shell: kubectl wait --for=condition=available --timeout=300s deployment --all -n istio-system
+      become_user: ubuntu
+      environment:
+        KUBECONFIG: "/home/ubuntu/.kube/config"
+
+    - name: Display Istio installation status
+      shell: /usr/local/bin/istioctl version
+      become_user: ubuntu
+      environment:
+        KUBECONFIG: "/home/ubuntu/.kube/config"
+      register: istio_version_output
+
+    - name: Show Istio version
+      debug:
+        msg: "{{ istio_version_output.stdout }}"
+
+    - name: Get Istio ingress gateway external IP
+      shell: kubectl get svc istio-ingressgateway -n istio-system
+      become_user: ubuntu
+      environment:
+        KUBECONFIG: "/home/ubuntu/.kube/config"
+      register: istio_ingress
+
+    - name: Show Istio ingress gateway
+      debug:
+        msg: "{{ istio_ingress.stdout }}"

@@ -1,0 +1,102 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ml-benchmark
+  labels:
+    workload-type: ml-batch
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ml-training-job
+  namespace: ml-benchmark
+  labels:
+    workload: ml-training
+spec:
+  parallelism: 2
+  completions: 5
+  template:
+    metadata:
+      labels:
+        app: ml-training
+        version: v1
+    spec:
+      restartPolicy: OnFailure
+      containers:
+      - name: ml-worker
+        image: python:3.9-slim
+        command: ["/bin/bash"]
+        args:
+          - -c
+          - |
+            pip install numpy scikit-learn pandas
+            python3 << 'EOF'
+            import numpy as np
+            from sklearn.ensemble import RandomForestClassifier
+            import time
+
+            print("Starting ML training job...")
+            # Generate synthetic dataset
+            X = np.random.rand(10000, 20)
+            y = np.random.randint(0, 2, 10000)
+
+            # Train model
+            model = RandomForestClassifier(n_estimators=100)
+            start_time = time.time()
+            model.fit(X, y)
+            duration = time.time() - start_time
+
+            print(f"Training completed in {duration:.2f} seconds")
+            print(f"Model score: {model.score(X, y):.4f}")
+            EOF
+        resources:
+          requests:
+            cpu: 500m
+            memory: 512Mi
+          limits:
+            cpu: 1000m
+            memory: 1Gi
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ml-inference-job
+  namespace: ml-benchmark
+  labels:
+    workload: ml-inference
+spec:
+  schedule: "*/5 * * * *"
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            app: ml-inference
+        spec:
+          restartPolicy: OnFailure
+          containers:
+          - name: inference
+            image: python:3.9-slim
+            command: ["/bin/bash"]
+            args:
+              - -c
+              - |
+                pip install numpy
+                python3 << 'EOF'
+                import numpy as np
+                import time
+
+                print("Running inference...")
+                data = np.random.rand(1000, 20)
+                # Simulate inference
+                time.sleep(5)
+                print("Inference completed")
+                EOF
+            resources:
+              requests:
+                cpu: 200m
+                memory: 256Mi
+              limits:
+                cpu: 500m
+                memory: 512Mi

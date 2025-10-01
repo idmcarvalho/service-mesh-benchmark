@@ -1,0 +1,47 @@
+# Oracle Cloud Infrastructure Configuration
+# Copy this file to terraform.tfvars and fill in your values
+# NEVER commit terraform.tfvars to version control
+
+# Authentication - Get these from OCI Console
+tenancy_ocid     = "ocid1.tenancy.oc1..aaaaaaaaxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+user_ocid        = "ocid1.user.oc1..aaaaaaaaxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+fingerprint      = "xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx"
+private_key_path = "~/.oci/oci_api_key.pem"
+compartment_ocid = "ocid1.compartment.oc1..aaaaaaaaxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+
+# Region
+region = "us-ashburn-1"
+
+# SSH Configuration
+ssh_public_key_path = "~/.ssh/id_rsa.pub"
+
+# Security - IMPORTANT: Set these to your actual IP address for security
+# Get your IP from: curl ifconfig.me
+allowed_ssh_cidr      = "YOUR.IP.ADDRESS.HERE/32"  # Example: "203.0.113.1/32"
+allowed_api_cidr      = "YOUR.IP.ADDRESS.HERE/32"  # Example: "203.0.113.1/32"
+allowed_nodeport_cidr = "YOUR.IP.ADDRESS.HERE/32"  # Can be broader for testing
+
+# Instance Configuration (Free Tier: VM.Standard.A1.Flex)
+instance_shape     = "VM.Standard.A1.Flex"
+instance_ocpus     = 2
+instance_memory_gb = 12
+
+# Worker Nodes (Adjust based on free tier limits)
+worker_count      = 2
+worker_ocpus      = 1
+worker_memory_gb  = 6
+
+# Test Type
+test_type = "benchmark"  # Options: istio, cilium, linkerd, baseline, benchmark
+
+# Network
+vcn_cidr    = "10.0.0.0/16"
+subnet_cidr = "10.0.1.0/24"
+
+# Tags
+project_tags = {
+  Project     = "ServiceMeshBenchmark"
+  Environment = "Research"
+  ManagedBy   = "Terraform"
+  Owner       = "YourName"
+}

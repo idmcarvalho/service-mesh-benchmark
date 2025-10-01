@@ -1,0 +1,100 @@
+---
+- name: Setup Cilium Service Mesh
+  hosts: master
+  become: yes
+  vars:
+    cilium_version: "1.14.4"
+    cilium_cli_version: "v0.15.17"
+
+  tasks:
+    - name: Download Cilium CLI
+      get_url:
+        url: "https://github.com/cilium/cilium-cli/releases/download/{{ cilium_cli_version }}/cilium-linux-amd64.tar.gz"
+        dest: "/tmp/cilium-cli.tar.gz"
+        mode: '0644'
+
+    - name: Extract Cilium CLI
+      unarchive:
+        src: "/tmp/cilium-cli.tar.gz"
+        dest: "/usr/local/bin/"
+        remote_src: yes
+
+    - name: Make Cilium CLI executable
+      file:
+        path: "/usr/local/bin/cilium"
+        mode: '0755'
+
+    - name: Check if Cilium is already installed
+      shell: kubectl get namespace kube-system
+      register: cilium_namespace
+      become_user: ubuntu
+      environment:
+        KUBECONFIG: "/home/ubuntu/.kube/config"
+
+    - name: Check existing Cilium installation
+      shell: cilium status
+      register: cilium_status
+      become_user: ubuntu
+      environment:
+        KUBECONFIG: "/home/ubuntu/.kube/config"
+      ignore_errors: yes
+
+    - name: Install Cilium
+      shell: |
+        cilium install --version {{ cilium_version }} \
+          --set ipam.mode=kubernetes \
+          --set kubeProxyReplacement=strict \
+          --set hubble.enabled=true \
+          --set hubble.relay.enabled=true \
+          --set hubble.ui.enabled=true
+      when: cilium_status.rc != 0
+      become_user: ubuntu
+      environment:
+        KUBECONFIG: "/home/ubuntu/.kube/config"
+
+    - name: Wait for Cilium to be ready
+      shell: cilium status --wait
+      become_user: ubuntu
+      environment:
+        KUBECONFIG: "/home/ubuntu/.kube/config"
+      retries: 10
+      delay: 30
+
+    - name: Enable Hubble UI port forwarding (background)
+      shell: |
+        nohup kubectl port-forward -n kube-system svc/hubble-ui 8080:80 --address 0.0.0.0 &
+      become_user: ubuntu
+      environment:
+        KUBECONFIG: "/home/ubuntu/.kube/config"
+      ignore_errors: yes
+
+    - name: Run Cilium connectivity test
+      shell: cilium connectivity test --test '!no-unexpected-packet-drops,!no-policies-extra'
+      become_user: ubuntu
+      environment:
+        KUBECONFIG: "/home/ubuntu/.kube/config"
+      ignore_errors: yes
+      async: 600
+      poll: 0
+
+    - name: Display Cilium status
+      shell: cilium status
+      become_user: ubuntu
+      environment:
+        KUBECONFIG: "/home/ubuntu/.kube/config"
+      register: cilium_status_output
+
+    - name: Show Cilium status
+      debug:
+        msg: "{{ cilium_status_output.stdout }}"
+
+    - name: Get Cilium version
+      shell: cilium version
+      become_user: ubuntu
+      environment:
+        KUBECONFIG: "/home/ubuntu/.kube/config"
+      register: cilium_version_output
+
+    - name: Show Cilium version
+      debug:
+        msg: "{{ cilium_version_output.stdout }}"

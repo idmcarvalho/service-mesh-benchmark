@@ -1,0 +1,122 @@
+---
+- name: Run Service Mesh Benchmark Tests
+  hosts: master
+  become: yes
+  vars:
+    benchmark_dir: "/home/ubuntu/benchmarks"
+    results_dir: "{{ benchmark_dir }}/results"
+
+  tasks:
+    - name: Create benchmark directories
+      file:
+        path: "{{ item }}"
+        state: directory
+        owner: ubuntu
+        group: ubuntu
+        mode: '0755'
+      loop:
+        - "{{ benchmark_dir }}"
+        - "{{ benchmark_dir }}/scripts"
+        - "{{ results_dir }}"
+
+    - name: Copy benchmark scripts to master
+      copy:
+        src: "../../benchmarks/scripts/"
+        dest: "{{ benchmark_dir }}/scripts/"
+        owner: ubuntu
+        group: ubuntu
+        mode: '0755'
+
+    - name: Install benchmark tools
+      apt:
+        name:
+          - apache2-utils
+          - curl
+          - wget
+          - jq
+        state: present
+        update_cache: yes
+
+    - name: Install wrk
+      shell: |
+        apt-get install -y build-essential libssl-dev git
+        cd /tmp
+        git clone https://github.com/wg/wrk.git
+        cd wrk
+        make
+        cp wrk /usr/local/bin/
+      args:
+        creates: /usr/local/bin/wrk
+
+    - name: Deploy workloads
+      shell: |
+        kubectl apply -f /home/ubuntu/kubernetes/workloads/http-service.yaml
+        kubectl apply -f /home/ubuntu/kubernetes/workloads/grpc-service.yaml
+        kubectl apply -f /home/ubuntu/kubernetes/workloads/websocket-service.yaml
+        kubectl apply -f /home/ubuntu/kubernetes/workloads/database-cluster.yaml
+      become_user: ubuntu
+      environment:
+        KUBECONFIG: "/home/ubuntu/.kube/config"
+
+    - name: Wait for workloads to be ready
+      shell: |
+        kubectl wait --for=condition=ready pod -l app=http-server -n http-benchmark --timeout=300s
+        kubectl wait --for=condition=ready pod -l app=grpc-server -n grpc-benchmark --timeout=300s
+      become_user: ubuntu
+      environment:
+        KUBECONFIG: "/home/ubuntu/.kube/config"
+      ignore_errors: yes
+
+    - name: Run HTTP load test
+      shell: |
+        cd {{ benchmark_dir }}/scripts
+        RESULTS_DIR={{ results_dir }} bash http-load-test.sh
+      become_user: ubuntu
+      environment:
+        KUBECONFIG: "/home/ubuntu/.kube/config"
+      register: http_test_result
+
+    - name: Show HTTP test results
+      debug:
+        msg: "{{ http_test_result.stdout }}"
+
+    - name: Run gRPC load test
+      shell: |
+        cd {{ benchmark_dir }}/scripts
+        RESULTS_DIR={{ results_dir }} bash grpc-test.sh
+      become_user: ubuntu
+      environment:
+        KUBECONFIG: "/home/ubuntu/.kube/config"
+      register: grpc_test_result
+      ignore_errors: yes
+
+    - name: Show gRPC test results
+      debug:
+        msg: "{{ grpc_test_result.stdout }}"
+
+    - name: Collect metrics
+      shell: |
+        cd {{ benchmark_dir }}/scripts
+        RESULTS_DIR={{ results_dir }} bash collect-metrics.sh
+      become_user: ubuntu
+      environment:
+        KUBECONFIG: "/home/ubuntu/.kube/config"
+      register: metrics_result
+
+    - name: Show metrics collection results
+      debug:
+        msg: "{{ metrics_result.stdout }}"
+
+    - name: Fetch results to local machine
+      fetch:
+        src: "{{ results_dir }}/"
+        dest: "../../benchmarks/results/"
+        flat: no
+
+    - name: Display results summary
+      shell: ls -lh {{ results_dir }}
+      register: results_summary
+
+    - name: Show results summary
+      debug:
+        msg: "{{ results_summary.stdout }}"

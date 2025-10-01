@@ -1,0 +1,134 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: grpc-benchmark
+  labels:
+    workload-type: grpc
+---
+# Using grpcbin - a gRPC Request & Response Service
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grpc-server
+  namespace: grpc-benchmark
+  labels:
+    app: grpc-server
+    workload: benchmark
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: grpc-server
+  template:
+    metadata:
+      labels:
+        app: grpc-server
+        version: v1
+    spec:
+      containers:
+      - name: grpc-server
+        image: moul/grpcbin:latest
+        ports:
+        - containerPort: 9000
+          name: grpc
+        - containerPort: 9001
+          name: grpc-web
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi
+        livenessProbe:
+          tcpSocket:
+            port: 9000
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        readinessProbe:
+          tcpSocket:
+            port: 9000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grpc-server
+  namespace: grpc-benchmark
+  labels:
+    app: grpc-server
+spec:
+  type: ClusterIP
+  ports:
+  - port: 9000
+    targetPort: 9000
+    protocol: TCP
+    name: grpc
+  - port: 9001
+    targetPort: 9001
+    protocol: TCP
+    name: grpc-web
+  selector:
+    app: grpc-server
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grpc-client
+  namespace: grpc-benchmark
+  labels:
+    app: grpc-client
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: grpc-client
+  template:
+    metadata:
+      labels:
+        app: grpc-client
+        version: v1
+    spec:
+      containers:
+      - name: grpc-client
+        image: fullstorydev/grpcurl:latest
+        command: ["/bin/sh"]
+        args:
+          - -c
+          - |
+            while true; do
+              grpcurl -plaintext grpc-server.grpc-benchmark.svc.cluster.local:9000 list || true
+              sleep 2
+            done
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grpc-server-nodeport
+  namespace: grpc-benchmark
+  labels:
+    app: grpc-server
+spec:
+  type: NodePort
+  ports:
+  - port: 9000
+    targetPort: 9000
+    nodePort: 30090
+    protocol: TCP
+    name: grpc
+  - port: 9001
+    targetPort: 9001
+    nodePort: 30091
+    protocol: TCP
+    name: grpc-web
+  selector:
+    app: grpc-server
