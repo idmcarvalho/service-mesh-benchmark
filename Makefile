@@ -112,6 +112,22 @@ collect-metrics: ## Collect metrics from all services
 	@echo "Collecting metrics..."
 	@cd $(BENCHMARKS_DIR) && bash collect-metrics.sh
 
+collect-ebpf-metrics: ## Collect eBPF-specific metrics (Cilium)
+	@echo "Collecting eBPF metrics..."
+	@cd $(BENCHMARKS_DIR) && bash collect-ebpf-metrics.sh
+
+test-network-policies: ## Test network policy performance
+	@echo "Testing network policies..."
+	@cd $(BENCHMARKS_DIR) && bash test-network-policies.sh
+
+test-cilium-l7: ## Test Cilium L7 traffic management
+	@echo "Testing Cilium L7 features..."
+	@cd $(BENCHMARKS_DIR) && bash test-cilium-l7.sh
+
+compare-meshes: ## Compare eBPF vs sidecar performance
+	@echo "Comparing service mesh performance..."
+	@cd $(BENCHMARKS_DIR) && bash compare-ebpf-vs-sidecar.sh
+
 generate-report: ## Generate benchmark report
 	@echo "Generating report..."
 	@python3 generate-report.py

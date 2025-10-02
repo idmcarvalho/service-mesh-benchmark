@@ -39,18 +39,38 @@
         KUBECONFIG: "/home/ubuntu/.kube/config"
       ignore_errors: yes
 
-    - name: Install Cilium
+    - name: Install Cilium with advanced eBPF features
       shell: |
         cilium install --version {{ cilium_version }} \
           --set ipam.mode=kubernetes \
           --set kubeProxyReplacement=strict \
           --set hubble.enabled=true \
           --set hubble.relay.enabled=true \
-          --set hubble.ui.enabled=true
+          --set hubble.ui.enabled=true \
+          --set hubble.metrics.enabled="{dns,drop,tcp,flow,icmp,http}" \
+          --set prometheus.enabled=true \
+          --set operator.prometheus.enabled=true \
+          --set envoy.enabled=true \
+          --set envoy.prometheus.enabled=true \
+          --set loadBalancer.l7.backend=envoy \
+          --set bpf.monitorAggregation=maximum \
+          --set bpf.monitorInterval=5s \
+          --set bpf.monitorFlags=all
       when: cilium_status.rc != 0
       become_user: ubuntu
       environment:
         KUBECONFIG: "/home/ubuntu/.kube/config"
+
+    - name: Install Hubble CLI
+      shell: |
+        HUBBLE_VERSION=$(curl -s https://raw.githubusercontent.com/cilium/hubble/master/stable.txt)
+        curl -L --remote-name-all https://github.com/cilium/hubble/releases/download/$HUBBLE_VERSION/hubble-linux-amd64.tar.gz{,.sha256sum}
+        sha256sum --check hubble-linux-amd64.tar.gz.sha256sum
+        tar xzvf hubble-linux-amd64.tar.gz
+        mv hubble /usr/local/bin/
+        rm hubble-linux-amd64.tar.gz{,.sha256sum}
+      args:
+        creates: /usr/local/bin/hubble
 
     - name: Wait for Cilium to be ready
       shell: cilium status --wait
