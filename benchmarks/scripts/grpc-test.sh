@@ -7,10 +7,14 @@ echo "=== gRPC Load Test ==="
 
 # Configuration
 SERVICE_URL="${SERVICE_URL:-grpc-server.grpc-benchmark.svc.cluster.local:9000}"
+NAMESPACE="${NAMESPACE:-grpc-benchmark}"
 RESULTS_DIR="${RESULTS_DIR:-../results}"
 TEST_DURATION="${TEST_DURATION:-60s}"
 CONCURRENT_CONNECTIONS="${CONCURRENT_CONNECTIONS:-50}"
 TOTAL_REQUESTS="${TOTAL_REQUESTS:-10000}"
+WARMUP_DURATION="${WARMUP_DURATION:-10}"
+COOLDOWN_DURATION="${COOLDOWN_DURATION:-5}"
+MESH_TYPE="${MESH_TYPE:-baseline}"
 
 # Create results directory
 mkdir -p "$RESULTS_DIR"
@@ -20,9 +24,33 @@ TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 OUTPUT_FILE="$RESULTS_DIR/grpc_test_${TIMESTAMP}.json"
 
 echo "Testing gRPC service: $SERVICE_URL"
+echo "Namespace: $NAMESPACE"
+echo "Mesh Type: $MESH_TYPE"
 echo "Duration: $TEST_DURATION"
 echo "Concurrent connections: $CONCURRENT_CONNECTIONS"
 echo "Total requests: $TOTAL_REQUESTS"
+echo "Warm-up: ${WARMUP_DURATION}s, Cool-down: ${COOLDOWN_DURATION}s"
+echo ""
+
+# Health check - wait for pods to be ready
+echo "Checking pod readiness..."
+if ! kubectl wait --for=condition=ready pod -l app=grpc-server -n "$NAMESPACE" --timeout=300s 2>/dev/null; then
+    echo "Warning: Pods may not be ready, but continuing anyway..."
+fi
+
+# Verify service is accessible
+echo "Verifying gRPC service connectivity..."
+if ! kubectl run test-grpcurl --image=fullstorydev/grpcurl:latest --rm -i --restart=Never -n "$NAMESPACE" -- -plaintext "$SERVICE_URL" list &> /dev/null; then
+    echo "Warning: Could not verify gRPC service accessibility"
+fi
+echo "Service check complete"
+echo ""
+
+# Warm-up period
+echo "Running warm-up period (${WARMUP_DURATION}s)..."
+sleep "$WARMUP_DURATION"
+echo "Warm-up complete"
+echo ""
 
 # Check if ghz is installed
 if ! command -v ghz &> /dev/null; then
@@ -47,11 +75,25 @@ ghz --insecure \
 
 # Fallback: use grpcurl for basic testing
 echo "Running grpcurl tests..."
-grpcurl -plaintext "$SERVICE_URL" list > "$RESULTS_DIR/grpc_services_${TIMESTAMP}.txt"
+grpcurl -plaintext "$SERVICE_URL" list > "$RESULTS_DIR/grpc_services_${TIMESTAMP}.txt" 2>/dev/null || echo "grpcurl list failed"
+
+# Cool-down period
+echo ""
+echo "Running cool-down period (${COOLDOWN_DURATION}s)..."
+sleep "$COOLDOWN_DURATION"
+echo "Cool-down complete"
+echo ""
 
 # Collect Kubernetes metrics
 echo "Collecting Kubernetes metrics..."
-kubectl top pods -n grpc-benchmark > "$RESULTS_DIR/grpc_k8s_metrics_${TIMESTAMP}.txt"
+kubectl top pods -n "$NAMESPACE" > "$RESULTS_DIR/grpc_k8s_metrics_${TIMESTAMP}.txt" 2>/dev/null || echo "kubectl top not available"
 
+# Add mesh_type to output JSON if ghz succeeded
+if [ -f "$OUTPUT_FILE" ]; then
+    # Create temp file with mesh_type added
+    jq ". + {\"mesh_type\": \"$MESH_TYPE\", \"namespace\": \"$NAMESPACE\"}" "$OUTPUT_FILE" > "${OUTPUT_FILE}.tmp" && mv "${OUTPUT_FILE}.tmp" "$OUTPUT_FILE"
+fi
+
+echo ""
 echo "Results saved to: $OUTPUT_FILE"
 echo "=== gRPC Load Test Complete ==="

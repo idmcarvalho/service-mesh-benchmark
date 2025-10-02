@@ -49,6 +49,12 @@ deploy-workloads: ## Deploy all Kubernetes workloads
 	@kubectl apply -f $(WORKLOADS_DIR)/ml-batch-job.yaml
 	@echo "Workloads deployed!"
 
+deploy-baseline: ## Deploy baseline workloads (no service mesh)
+	@echo "Deploying baseline workloads..."
+	@kubectl apply -f $(WORKLOADS_DIR)/baseline-http-service.yaml
+	@kubectl apply -f $(WORKLOADS_DIR)/baseline-grpc-service.yaml
+	@echo "Baseline workloads deployed!"
+
 deploy-http: ## Deploy only HTTP workload
 	@kubectl apply -f $(WORKLOADS_DIR)/http-service.yaml
 
@@ -80,14 +86,25 @@ test-grpc: ## Run gRPC load test
 	@echo "Running gRPC load test..."
 	@cd $(BENCHMARKS_DIR) && bash grpc-test.sh
 
+test-websocket: ## Run WebSocket load test
+	@echo "Running WebSocket load test..."
+	@cd $(BENCHMARKS_DIR) && bash websocket-test.sh
+
 test-ml: ## Run ML workload test
 	@echo "Running ML workload test..."
 	@cd $(BENCHMARKS_DIR) && bash ml-workload.sh
+
+test-baseline: ## Run baseline tests (no service mesh)
+	@echo "Running baseline tests..."
+	@cd $(BENCHMARKS_DIR) && NAMESPACE=baseline-http SERVICE_URL=baseline-http-server.baseline-http.svc.cluster.local MESH_TYPE=baseline bash http-load-test.sh
+	@cd $(BENCHMARKS_DIR) && NAMESPACE=baseline-grpc SERVICE_URL=baseline-grpc-server.baseline-grpc.svc.cluster.local:9000 MESH_TYPE=baseline bash grpc-test.sh
+	@echo "Baseline tests complete!"
 
 test-all: ## Run all benchmark tests
 	@echo "Running all tests..."
 	@$(MAKE) test-http
 	@$(MAKE) test-grpc
+	@$(MAKE) test-websocket
 	@$(MAKE) test-ml
 	@echo "All tests complete!"
 

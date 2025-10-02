@@ -1,0 +1,161 @@
+---
+# Baseline HTTP service without service mesh for performance comparison
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: baseline-http
+  labels:
+    workload-type: http
+    mesh: none
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-config
+  namespace: baseline-http
+data:
+  nginx.conf: |
+    worker_processes auto;
+    events {
+      worker_connections 1024;
+    }
+    http {
+      access_log /var/log/nginx/access.log;
+      error_log /var/log/nginx/error.log;
+
+      server {
+        listen 80;
+        location / {
+          return 200 'HTTP Baseline Response\n';
+          add_header Content-Type text/plain;
+        }
+        location /health {
+          return 200 'OK';
+        }
+      }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: baseline-http-server
+  namespace: baseline-http
+  labels:
+    app: baseline-http-server
+    workload: baseline
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: baseline-http-server
+  template:
+    metadata:
+      labels:
+        app: baseline-http-server
+        version: v1
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:alpine
+        ports:
+        - containerPort: 80
+          name: http
+        volumeMounts:
+        - name: nginx-config
+          mountPath: /etc/nginx/nginx.conf
+          subPath: nginx.conf
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 80
+          initialDelaySeconds: 10
+          periodSeconds: 5
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 3
+      volumes:
+      - name: nginx-config
+        configMap:
+          name: nginx-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: baseline-http-server
+  namespace: baseline-http
+  labels:
+    app: baseline-http-server
+spec:
+  type: ClusterIP
+  ports:
+  - port: 80
+    targetPort: 80
+    protocol: TCP
+    name: http
+  selector:
+    app: baseline-http-server
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: baseline-http-client
+  namespace: baseline-http
+  labels:
+    app: baseline-http-client
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: baseline-http-client
+  template:
+    metadata:
+      labels:
+        app: baseline-http-client
+        version: v1
+    spec:
+      containers:
+      - name: curl
+        image: curlimages/curl:latest
+        command: ["/bin/sh"]
+        args:
+          - -c
+          - |
+            while true; do
+              curl -s http://baseline-http-server.baseline-http.svc.cluster.local/
+              sleep 1
+            done
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: baseline-http-server-nodeport
+  namespace: baseline-http
+  labels:
+    app: baseline-http-server
+spec:
+  type: NodePort
+  ports:
+  - port: 80
+    targetPort: 80
+    nodePort: 30081
+    protocol: TCP
+    name: http
+  selector:
+    app: baseline-http-server

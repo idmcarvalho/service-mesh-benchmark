@@ -56,10 +56,13 @@ kubeconfig
 *.kubeconfig
 
 # Benchmarks
+benchmarks/results/
 benchmarks/results/*.json
 benchmarks/results/*.csv
 benchmarks/results/*.html
 benchmarks/results/*.png
+benchmarks/results/*.txt
+benchmarks/results/*.tsv
 
 # IDE
 .vscode/
