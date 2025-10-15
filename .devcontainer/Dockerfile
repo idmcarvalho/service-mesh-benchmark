@@ -16,3 +16,4 @@ RUN wget -q https://github.com/bojand/ghz/releases/download/v0.117.0/ghz-linux-x
 RUN apt-get autoremove -y && apt-get clean -y && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /workspace
+# https://github.com/hotheadhacker/seedbox-lite

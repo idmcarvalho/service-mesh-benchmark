@@ -14,8 +14,8 @@ from pathlib import Path
 import argparse
 
 
+"""Load JSON file safely"""
 def load_json_file(filepath):
-    """Load JSON file safely"""
     try:
         with open(filepath, 'r') as f:
             return json.load(f)
@@ -23,9 +23,8 @@ def load_json_file(filepath):
         print(f"Error loading {filepath}: {e}")
         return None
 
-
+"""Parse wrk output file to extract metrics"""
 def parse_wrk_output(filepath):
-    """Parse wrk output file to extract metrics"""
     try:
         with open(filepath, 'r') as f:
             content = f.read()
@@ -84,18 +83,16 @@ def parse_wrk_output(filepath):
         print(f"Error parsing {filepath}: {e}")
         return None
 
-
+"""Calculate percentile from data"""
 def calculate_percentile(data, percentile):
-    """Calculate percentile from data"""
     if not data:
         return None
     sorted_data = sorted(data)
     index = int(len(sorted_data) * percentile / 100)
     return sorted_data[min(index, len(sorted_data) - 1)]
 
-
+"""Aggregate metrics by test type and service mesh"""
 def aggregate_metrics(results):
-    """Aggregate metrics by test type and service mesh"""
     aggregated = {}
 
     for result in results:
@@ -142,9 +139,8 @@ def aggregate_metrics(results):
 
     return aggregated
 
-
+"""Generate HTML comparison table"""
 def generate_comparison_table(aggregated_data):
-    """Generate HTML comparison table"""
     # Group by test type
     by_test_type = {}
     for key, data in aggregated_data.items():
@@ -190,9 +186,8 @@ def generate_comparison_table(aggregated_data):
 
     return html
 
-
+"""Generate JavaScript data for charts"""
 def generate_chart_data(aggregated_data):
-    """Generate JavaScript data for charts"""
     # Group by test type
     by_test_type = {}
     for key, data in aggregated_data.items():
@@ -207,9 +202,8 @@ def generate_chart_data(aggregated_data):
     return json.dumps(by_test_type)
 
 
+"""Generate enhanced HTML report with charts and metrics"""
 def generate_html_report(results, output_file):
-    """Generate enhanced HTML report with charts and metrics"""
-
     # Aggregate data
     aggregated = aggregate_metrics(results)
     comparison_table = generate_comparison_table(aggregated)

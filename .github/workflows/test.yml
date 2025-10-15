@@ -1,0 +1,140 @@
+name: Service Mesh Benchmark Tests
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      mesh_type:
+        description: 'Service mesh type to test'
+        required: true
+        default: 'baseline'
+        type: choice
+        options:
+          - baseline
+          - istio
+          - cilium
+          - linkerd
+
+jobs:
+  # Phase 1: Pre-deployment tests (fast, no infrastructure needed)
+  pre-deployment:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install UV
+        run: curl -LsSf https://astral.sh/uv/install.sh | sh
+
+      - name: Install Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.5.0
+
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v3
+
+      - name: Install Python dependencies
+        run: |
+          uv pip install -r tests/requirements.txt
+
+      - name: Run Phase 1 Tests
+        run: |
+          cd tests
+          pytest -v -m phase1 \
+            --html=../benchmarks/results/phase1_report.html \
+            --self-contained-html
+
+      - name: Upload Phase 1 Results
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: phase1-results
+          path: benchmarks/results/
+
+  # Lint and validate
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate Terraform
+        run: |
+          cd terraform/oracle-cloud
+          terraform fmt -check -recursive || true
+          terraform init -backend=false
+          terraform validate
+
+      - name: Validate Kubernetes Manifests
+        run: |
+          for file in kubernetes/workloads/*.yaml; do
+            echo "Validating $file"
+            kubectl apply --dry-run=client -f "$file" || echo "Warning: $file validation failed"
+          done
+
+      - name: Shellcheck
+        run: |
+          sudo apt-get install -y shellcheck
+          find . -name "*.sh" -exec shellcheck {} \; || true
+
+  # Full integration tests (requires infrastructure)
+  # This is a template - actual infrastructure deployment requires cloud credentials
+  integration:
+    runs-on: ubuntu-latest
+    # Only run on manual trigger with proper credentials
+    if: github.event_name == 'workflow_dispatch'
+    needs: [pre-deployment, lint]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install UV
+        run: curl -LsSf https://astral.sh/uv/install.sh | sh
+
+      - name: Install dependencies
+        run: |
+          uv pip install -r tests/requirements.txt
+
+      - name: Configure cloud credentials
+        run: |
+          # This would need to be configured with actual cloud credentials
+          echo "Configure OCI credentials here"
+
+      - name: Run Integration Tests
+        run: |
+          cd tests
+          python run_tests.py \
+            --phase=all \
+            --mesh-type=${{ github.event.inputs.mesh_type || 'baseline' }} \
+            --test-duration=60 \
+            --concurrent-connections=100
+
+      - name: Upload Test Results
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: integration-results
+          path: |
+            benchmarks/results/
+            tests/*.html
+
+      - name: Publish Test Report
+        if: always()
+        uses: dorny/test-reporter@v1
+        with:
+          name: Integration Test Results
+          path: benchmarks/results/test_report.json
+          reporter: mocha-json
+          fail-on-error: false

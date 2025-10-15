@@ -5,6 +5,9 @@ TERRAFORM_DIR := terraform/oracle-cloud
 WORKLOADS_DIR := kubernetes/workloads
 BENCHMARKS_DIR := benchmarks/scripts
 ANSIBLE_DIR := ansible
+TESTS_DIR := tests
+PYTHON := python3
+PYTEST := pytest
 
 help: ## Show this help message
 	@echo 'Usage: make [target]'
@@ -173,3 +176,126 @@ logs: ## Show logs from benchmark pods
 
 watch: ## Watch pod status
 	@watch -n 2 kubectl get pods --all-namespaces
+
+# ==============================================================================
+# Testing Targets
+# ==============================================================================
+
+test-deps: ## Install test dependencies
+	@echo "Installing test dependencies..."
+	@if command -v uv >/dev/null 2>&1; then \
+		echo "Using UV for faster installation..."; \
+		uv pip install -r $(TESTS_DIR)/requirements.txt; \
+	else \
+		echo "UV not found, using pip (install UV with: curl -LsSf https://astral.sh/uv/install.sh | sh)"; \
+		$(PYTHON) -m pip install -r $(TESTS_DIR)/requirements.txt; \
+	fi
+	@echo "Test dependencies installed!"
+
+test-validate: ## Run pre-deployment validation tests (Phase 1)
+	@echo "Running pre-deployment validation tests..."
+	@cd $(TESTS_DIR) && $(PYTEST) -v -m phase1
+
+test-infra: ## Run infrastructure validation tests (Phase 2)
+	@echo "Running infrastructure tests..."
+	@cd $(TESTS_DIR) && $(PYTEST) -v -m phase2
+
+test-baseline: ## Run baseline performance tests (Phase 3)
+	@echo "Running baseline tests..."
+	@cd $(TESTS_DIR) && $(PYTEST) -v -m phase3 --mesh-type=baseline
+
+test-mesh: ## Run service mesh tests (Phase 4)
+	@echo "Running service mesh tests..."
+	@echo "Usage: make test-mesh MESH_TYPE=<istio|cilium|linkerd>"
+	@cd $(TESTS_DIR) && $(PYTEST) -v -m phase4 --mesh-type=$(MESH_TYPE)
+
+test-mesh-istio: ## Run Istio service mesh tests
+	@echo "Running Istio tests..."
+	@cd $(TESTS_DIR) && $(PYTEST) -v -m phase4 --mesh-type=istio
+
+test-mesh-cilium: ## Run Cilium service mesh tests
+	@echo "Running Cilium tests..."
+	@cd $(TESTS_DIR) && $(PYTEST) -v -m phase4 --mesh-type=cilium
+
+test-mesh-linkerd: ## Run Linkerd service mesh tests
+	@echo "Running Linkerd tests..."
+	@cd $(TESTS_DIR) && $(PYTEST) -v -m phase4 --mesh-type=linkerd
+
+test-compare: ## Run comparative analysis tests (Phase 6)
+	@echo "Running comparative analysis..."
+	@cd $(TESTS_DIR) && $(PYTEST) -v -m phase6
+
+test-stress: ## Run stress tests (Phase 7)
+	@echo "Running stress tests..."
+	@cd $(TESTS_DIR) && $(PYTEST) -v -m phase7 --mesh-type=$(or $(MESH_TYPE),baseline)
+
+test-quick: ## Run quick tests (exclude slow tests)
+	@echo "Running quick tests..."
+	@cd $(TESTS_DIR) && $(PYTEST) -v -m "not slow"
+
+test-full: ## Run complete test suite for baseline
+	@echo "Running full test suite for baseline..."
+	@cd $(TESTS_DIR) && $(PYTHON) run_tests.py --phase=all --mesh-type=baseline
+
+test-full-istio: ## Run complete test suite for Istio
+	@echo "Running full test suite for Istio..."
+	@cd $(TESTS_DIR) && $(PYTHON) run_tests.py --phase=all --mesh-type=istio
+
+test-full-cilium: ## Run complete test suite for Cilium
+	@echo "Running full test suite for Cilium..."
+	@cd $(TESTS_DIR) && $(PYTHON) run_tests.py --phase=all --mesh-type=cilium
+
+test-orchestrated: ## Run orchestrated test suite
+	@echo "Running orchestrated tests..."
+	@echo "Usage: make test-orchestrated MESH_TYPE=<baseline|istio|cilium|linkerd> [PHASE=<phase>]"
+	@cd $(TESTS_DIR) && $(PYTHON) run_tests.py \
+		--phase=$(or $(PHASE),all) \
+		--mesh-type=$(or $(MESH_TYPE),baseline) \
+		--test-duration=$(or $(TEST_DURATION),60) \
+		--concurrent-connections=$(or $(CONNECTIONS),100)
+
+test-comprehensive: ## Run comprehensive testing workflow (all phases, all meshes)
+	@echo "Running comprehensive test suite..."
+	@echo "This will run tests for baseline, Istio, and Cilium"
+	@echo ""
+	@echo "Step 1: Pre-deployment validation..."
+	@$(MAKE) test-validate
+	@echo ""
+	@echo "Step 2: Infrastructure validation..."
+	@$(MAKE) test-infra
+	@echo ""
+	@echo "Step 3: Baseline tests..."
+	@$(MAKE) test-full
+	@echo ""
+	@echo "Step 4: Istio tests..."
+	@$(MAKE) test-full-istio
+	@echo ""
+	@echo "Step 5: Cilium tests..."
+	@$(MAKE) test-full-cilium
+	@echo ""
+	@echo "Step 6: Comparative analysis..."
+	@$(MAKE) test-compare
+	@echo ""
+	@echo "✅ Comprehensive testing complete!"
+	@echo "📊 Check benchmarks/results/ for detailed reports"
+
+test-ci: ## Run CI-friendly test suite
+	@echo "Running CI test suite..."
+	@cd $(TESTS_DIR) && $(PYTEST) -v -m "phase1" \
+		--html=../benchmarks/results/ci_report.html \
+		--self-contained-html \
+		--json-report \
+		--json-report-file=../benchmarks/results/ci_report.json
+
+test-report: ## Generate test report
+	@echo "Generating test report..."
+	@$(PYTHON) generate-report.py
+	@echo "Report generated in benchmarks/results/report.html"
+
+test-clean: ## Clean test results
+	@echo "Cleaning test results..."
+	@rm -rf $(TESTS_DIR)/.pytest_cache
+	@rm -rf $(TESTS_DIR)/__pycache__
+	@rm -rf $(TESTS_DIR)/**/__pycache__
+	@rm -f $(TESTS_DIR)/*.pyc
+	@echo "Test artifacts cleaned!"
