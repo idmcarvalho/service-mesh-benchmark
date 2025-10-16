@@ -50,14 +50,31 @@ jobs:
           cd tests
           pytest -v -m phase1 \
             --html=../benchmarks/results/phase1_report.html \
-            --self-contained-html
+            --self-contained-html \
+            --cov=. \
+            --cov-report=html \
+            --cov-report=xml \
+            --cov-report=term-missing
+
+      - name: Upload Coverage to Codecov
+        if: always()
+        uses: codecov/codecov-action@v3
+        with:
+          file: tests/coverage.xml
+          flags: phase1
+          name: phase1-coverage
+          fail_ci_if_error: false
 
       - name: Upload Phase 1 Results
         if: always()
         uses: actions/upload-artifact@v3
         with:
           name: phase1-results
-          path: benchmarks/results/
+          path: |
+            benchmarks/results/
+            tests/htmlcov/
+            tests/coverage.xml
+            tests/coverage.json
 
   # Lint and validate
   lint:
@@ -121,6 +138,25 @@ jobs:
             --test-duration=60 \
             --concurrent-connections=100
 
+      - name: Generate Coverage Report
+        if: always()
+        run: |
+          cd tests
+          coverage combine || true
+          coverage report
+          coverage html
+          coverage xml
+          coverage json
+
+      - name: Upload Coverage to Codecov
+        if: always()
+        uses: codecov/codecov-action@v3
+        with:
+          file: tests/coverage.xml
+          flags: integration,${{ github.event.inputs.mesh_type }}
+          name: integration-coverage
+          fail_ci_if_error: false
+
       - name: Upload Test Results
         if: always()
         uses: actions/upload-artifact@v3
@@ -129,6 +165,9 @@ jobs:
           path: |
             benchmarks/results/
             tests/*.html
+            tests/htmlcov/
+            tests/coverage.xml
+            tests/coverage.json
 
       - name: Publish Test Report
         if: always()
@@ -138,3 +177,11 @@ jobs:
           path: benchmarks/results/test_report.json
           reporter: mocha-json
           fail-on-error: false
+
+      - name: Comment Coverage on PR
+        if: github.event_name == 'pull_request'
+        uses: py-cov-action/python-coverage-comment-action@v3
+        with:
+          GITHUB_TOKEN: ${{ github.token }}
+          MINIMUM_GREEN: 70
+          MINIMUM_ORANGE: 50

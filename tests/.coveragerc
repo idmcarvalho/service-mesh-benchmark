@@ -1,0 +1,94 @@
+# Coverage.py configuration for service mesh benchmark tests
+
+[run]
+# Source code to measure coverage for
+source = .
+# Include patterns
+include =
+    test_*.py
+    conftest.py
+    run_tests.py
+
+# Omit patterns (files/directories to exclude)
+omit =
+    */tests/__pycache__/*
+    */tests/.pytest_cache/*
+    */tests/htmlcov/*
+    */tests/venv/*
+    */tests/.tox/*
+    */__init__.py
+    */site-packages/*
+
+# Branch coverage (measure if/else branches)
+branch = True
+
+# Parallel mode for xdist (parallel test execution)
+parallel = True
+
+# Data file location
+data_file = .coverage
+
+[report]
+# Precision for percentages
+precision = 2
+
+# Show missing lines
+show_missing = True
+
+# Skip covered files
+skip_covered = False
+
+# Skip empty files
+skip_empty = True
+
+# Fail if coverage is below threshold
+fail_under = 70.0
+
+# Sort by coverage percentage
+sort = Cover
+
+# Exclude lines from coverage (regex patterns)
+exclude_lines =
+    # Have to re-enable the standard pragma
+    pragma: no cover
+
+    # Don't complain about missing debug-only code
+    def __repr__
+    def __str__
+
+    # Don't complain if tests don't hit defensive assertion code
+    raise AssertionError
+    raise NotImplementedError
+
+    # Don't complain if non-runnable code isn't run
+    if __name__ == .__main__.:
+    if TYPE_CHECKING:
+
+    # Don't complain about abstract methods
+    @abstractmethod
+    @abc.abstractmethod
+
+    # Don't complain about pass statements
+    pass
+
+    # Don't complain about ellipsis
+    \.\.\.
+
+[html]
+# Directory for HTML report
+directory = htmlcov
+
+# Title for HTML report
+title = Service Mesh Benchmark Test Coverage
+
+[xml]
+# Output file for XML report (for CI/CD tools)
+output = coverage.xml
+
+[json]
+# Output file for JSON report
+output = coverage.json
+# Pretty print JSON
+pretty_print = True
+# Show execution contexts
+show_contexts = True

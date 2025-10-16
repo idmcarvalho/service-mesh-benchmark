@@ -299,3 +299,91 @@ test-clean: ## Clean test results
 	@rm -rf $(TESTS_DIR)/**/__pycache__
 	@rm -f $(TESTS_DIR)/*.pyc
 	@echo "Test artifacts cleaned!"
+
+# ==============================================================================
+# Coverage Targets
+# ==============================================================================
+
+coverage: ## Run tests with coverage report
+	@echo "Running tests with coverage..."
+	@cd $(TESTS_DIR) && $(PYTEST) -v --cov=. --cov-report=html --cov-report=term-missing --cov-report=json --cov-report=xml
+
+coverage-html: ## Generate HTML coverage report
+	@echo "Generating HTML coverage report..."
+	@cd $(TESTS_DIR) && $(PYTEST) -v --cov=. --cov-report=html
+	@echo "Coverage report generated: $(TESTS_DIR)/htmlcov/index.html"
+	@echo "Open with: xdg-open $(TESTS_DIR)/htmlcov/index.html"
+
+coverage-report: ## Show coverage report in terminal
+	@echo "Showing coverage report..."
+	@cd $(TESTS_DIR) && $(PYTEST) -v --cov=. --cov-report=term-missing
+
+coverage-xml: ## Generate XML coverage report (for CI/CD)
+	@echo "Generating XML coverage report..."
+	@cd $(TESTS_DIR) && $(PYTEST) -v --cov=. --cov-report=xml
+	@echo "Coverage XML generated: $(TESTS_DIR)/coverage.xml"
+
+coverage-json: ## Generate JSON coverage report
+	@echo "Generating JSON coverage report..."
+	@cd $(TESTS_DIR) && $(PYTEST) -v --cov=. --cov-report=json
+	@echo "Coverage JSON generated: $(TESTS_DIR)/coverage.json"
+
+coverage-phase1: ## Run Phase 1 tests with coverage
+	@echo "Running Phase 1 tests with coverage..."
+	@cd $(TESTS_DIR) && $(PYTEST) -v -m phase1 --cov=. --cov-report=html --cov-report=term-missing
+
+coverage-phase2: ## Run Phase 2 tests with coverage
+	@echo "Running Phase 2 tests with coverage..."
+	@cd $(TESTS_DIR) && $(PYTEST) -v -m phase2 --cov=. --cov-report=html --cov-report=term-missing
+
+coverage-phase3: ## Run Phase 3 tests with coverage
+	@echo "Running Phase 3 tests with coverage..."
+	@cd $(TESTS_DIR) && $(PYTEST) -v -m phase3 --cov=. --cov-report=html --cov-report=term-missing
+
+coverage-phase4: ## Run Phase 4 tests with coverage
+	@echo "Running Phase 4 tests with coverage..."
+	@cd $(TESTS_DIR) && $(PYTEST) -v -m phase4 --cov=. --cov-report=html --cov-report=term-missing --mesh-type=$(or $(MESH_TYPE),baseline)
+
+coverage-phase6: ## Run Phase 6 tests with coverage
+	@echo "Running Phase 6 tests with coverage..."
+	@cd $(TESTS_DIR) && $(PYTEST) -v -m phase6 --cov=. --cov-report=html --cov-report=term-missing
+
+coverage-phase7: ## Run Phase 7 tests with coverage
+	@echo "Running Phase 7 tests with coverage..."
+	@cd $(TESTS_DIR) && $(PYTEST) -v -m phase7 --cov=. --cov-report=html --cov-report=term-missing
+
+coverage-baseline: ## Run baseline tests with coverage
+	@echo "Running baseline tests with coverage..."
+	@cd $(TESTS_DIR) && $(PYTEST) -v --mesh-type=baseline --cov=. --cov-report=html --cov-report=term-missing
+
+coverage-istio: ## Run Istio tests with coverage
+	@echo "Running Istio tests with coverage..."
+	@cd $(TESTS_DIR) && $(PYTEST) -v -m phase4 --mesh-type=istio --cov=. --cov-report=html --cov-report=term-missing
+
+coverage-cilium: ## Run Cilium tests with coverage
+	@echo "Running Cilium tests with coverage..."
+	@cd $(TESTS_DIR) && $(PYTEST) -v -m phase4 --mesh-type=cilium --cov=. --cov-report=html --cov-report=term-missing
+
+coverage-open: ## Open HTML coverage report in browser
+	@echo "Opening coverage report..."
+	@xdg-open $(TESTS_DIR)/htmlcov/index.html || open $(TESTS_DIR)/htmlcov/index.html || echo "Please open $(TESTS_DIR)/htmlcov/index.html manually"
+
+coverage-clean: ## Clean coverage reports
+	@echo "Cleaning coverage reports..."
+	@rm -rf $(TESTS_DIR)/htmlcov
+	@rm -f $(TESTS_DIR)/.coverage
+	@rm -f $(TESTS_DIR)/.coverage.*
+	@rm -f $(TESTS_DIR)/coverage.xml
+	@rm -f $(TESTS_DIR)/coverage.json
+	@echo "Coverage reports cleaned!"
+
+coverage-badge: ## Generate coverage badge
+	@echo "Generating coverage badge..."
+	@cd $(TESTS_DIR) && coverage-badge -o ../docs/coverage.svg -f
+	@echo "Coverage badge generated: docs/coverage.svg"
+
+coverage-combine: ## Combine coverage data from parallel runs
+	@echo "Combining coverage data..."
+	@cd $(TESTS_DIR) && coverage combine
+	@cd $(TESTS_DIR) && coverage report
+	@echo "Coverage data combined!"
