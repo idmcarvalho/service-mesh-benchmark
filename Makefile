@@ -1,4 +1,4 @@
-.PHONY: help init deploy-infra deploy-workloads test clean destroy
+.PHONY: help init deploy-infra deploy-workloads test clean destroy lint format type-check quality
 
 # Variables
 TERRAFORM_DIR := terraform/oracle-cloud
@@ -8,6 +8,9 @@ ANSIBLE_DIR := ansible
 TESTS_DIR := tests
 PYTHON := python3
 PYTEST := pytest
+RUFF := ruff
+BLACK := black
+MYPY := mypy
 
 help: ## Show this help message
 	@echo 'Usage: make [target]'
@@ -387,3 +390,96 @@ coverage-combine: ## Combine coverage data from parallel runs
 	@cd $(TESTS_DIR) && coverage combine
 	@cd $(TESTS_DIR) && coverage report
 	@echo "Coverage data combined!"
+
+# ==============================================================================
+# Code Quality Targets
+# ==============================================================================
+
+quality-deps: ## Install code quality tools
+	@echo "Installing code quality dependencies..."
+	@if command -v uv >/dev/null 2>&1; then \
+		echo "Using UV for faster installation..."; \
+		uv pip install ruff black mypy pre-commit; \
+	else \
+		echo "UV not found, using pip"; \
+		$(PYTHON) -m pip install ruff black mypy pre-commit; \
+	fi
+	@echo "Code quality tools installed!"
+
+lint: ## Run ruff linter
+	@echo "Running ruff linter..."
+	@$(RUFF) check . --config=pyproject.toml
+
+lint-fix: ## Run ruff linter with auto-fix
+	@echo "Running ruff linter with auto-fix..."
+	@$(RUFF) check . --fix --config=pyproject.toml
+
+format: ## Run black formatter
+	@echo "Running black formatter..."
+	@$(BLACK) . --config=pyproject.toml
+
+format-check: ## Check formatting without making changes
+	@echo "Checking code formatting..."
+	@$(BLACK) . --check --config=pyproject.toml
+
+type-check: ## Run mypy type checking
+	@echo "Running mypy type checker..."
+	@$(MYPY) tests/ generate-report.py --config-file=pyproject.toml
+
+quality: ## Run all code quality checks (lint, format, type-check)
+	@echo "Running all code quality checks..."
+	@$(MAKE) lint
+	@$(MAKE) format-check
+	@$(MAKE) type-check
+	@echo "✅ All code quality checks passed!"
+
+quality-fix: ## Fix all auto-fixable issues (lint + format)
+	@echo "Fixing all auto-fixable issues..."
+	@$(MAKE) lint-fix
+	@$(MAKE) format
+	@echo "✅ Code quality issues fixed!"
+
+pre-commit-install: ## Install pre-commit hooks
+	@echo "Installing pre-commit hooks..."
+	@pre-commit install
+	@pre-commit install --hook-type commit-msg
+	@echo "✅ Pre-commit hooks installed!"
+
+pre-commit-run: ## Run pre-commit hooks on all files
+	@echo "Running pre-commit hooks on all files..."
+	@pre-commit run --all-files
+
+pre-commit-update: ## Update pre-commit hooks to latest versions
+	@echo "Updating pre-commit hooks..."
+	@pre-commit autoupdate
+
+shellcheck: ## Run shellcheck on shell scripts
+	@echo "Running shellcheck on shell scripts..."
+	@find benchmarks/scripts -name "*.sh" -type f -exec shellcheck {} \;
+	@find ebpf-probes -name "*.sh" -type f -exec shellcheck {} \; 2>/dev/null || true
+
+yamllint: ## Run yamllint on YAML files
+	@echo "Running yamllint on YAML files..."
+	@yamllint -c .yamllint.yaml .
+
+ansible-lint: ## Run ansible-lint on Ansible playbooks
+	@echo "Running ansible-lint on Ansible playbooks..."
+	@ansible-lint ansible/playbooks/
+
+quality-all: ## Run all linters (Python, shell, YAML, Ansible)
+	@echo "Running all linters..."
+	@$(MAKE) lint
+	@$(MAKE) format-check
+	@$(MAKE) type-check
+	@$(MAKE) shellcheck || echo "⚠️  Shellcheck found issues"
+	@$(MAKE) yamllint || echo "⚠️  YAML linting found issues"
+	@$(MAKE) ansible-lint || echo "⚠️  Ansible linting found issues"
+	@echo "✅ All linters completed!"
+
+quality-clean: ## Clean code quality artifacts
+	@echo "Cleaning code quality artifacts..."
+	@find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+	@find . -type f -name "*.pyc" -delete 2>/dev/null || true
+	@find . -type d -name ".ruff_cache" -exec rm -rf {} + 2>/dev/null || true
+	@find . -type d -name ".mypy_cache" -exec rm -rf {} + 2>/dev/null || true
+	@echo "✅ Code quality artifacts cleaned!"

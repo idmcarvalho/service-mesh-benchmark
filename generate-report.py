@@ -1,150 +1,211 @@
 #!/usr/bin/env python3
-"""
-Service Mesh Benchmark Report Generator
-Generates comprehensive reports from benchmark results with detailed metrics and charts
+"""Service Mesh Benchmark Report Generator.
+
+Generates comprehensive reports from benchmark results with detailed metrics and charts.
 """
 
+import argparse
+import csv
 import json
-import glob
-import os
 import re
 import statistics
 from datetime import datetime
 from pathlib import Path
-import argparse
+from typing import Any, Dict, List, Optional
+
+from pydantic import BaseModel, Field, ValidationError
+
+from tests.models import BenchmarkResult, MeshType
 
 
-"""Load JSON file safely"""
-def load_json_file(filepath):
+class WrkMetrics(BaseModel):
+    """Metrics parsed from wrk output."""
+
+    raw_output: str
+    requests_per_sec: Optional[float] = None
+    transfer_per_sec: Optional[str] = None
+    latency_avg: Optional[str] = None
+    latency_stdev: Optional[str] = None
+    latency_max: Optional[str] = None
+    latency_p50: Optional[str] = None
+    latency_p75: Optional[str] = None
+    latency_p90: Optional[str] = None
+    latency_p99: Optional[str] = None
+    total_requests: Optional[int] = None
+    total_transfer: Optional[str] = None
+
+
+class AggregatedMetrics(BaseModel):
+    """Aggregated metrics for a test type and mesh combination."""
+
+    test_type: str
+    mesh_type: str
+    runs: List[Dict[str, Any]] = Field(default_factory=list)
+    avg_throughput: Optional[float] = None
+    avg_latency: Optional[float] = None
+    p95_latency: Optional[float] = None
+    p99_latency: Optional[float] = None
+    success_rate: Optional[float] = None
+
+
+class ChartData(BaseModel):
+    """Data for chart generation."""
+
+    labels: List[str] = Field(default_factory=list)
+    throughput: List[float] = Field(default_factory=list)
+    latency: List[float] = Field(default_factory=list)
+
+
+def load_json_file(filepath: Path) -> Optional[Dict[str, Any]]:
+    """Load JSON file safely.
+
+    Args:
+        filepath: Path to the JSON file to load.
+
+    Returns:
+        Parsed JSON data as a dictionary, or None if loading fails.
+    """
     try:
-        with open(filepath, 'r') as f:
+        with open(filepath, encoding="utf-8") as f:
             return json.load(f)
-    except Exception as e:
+    except (OSError, json.JSONDecodeError) as e:
         print(f"Error loading {filepath}: {e}")
         return None
 
-"""Parse wrk output file to extract metrics"""
-def parse_wrk_output(filepath):
+def parse_wrk_output(filepath: Path) -> Optional[WrkMetrics]:
+    """Parse wrk output file to extract metrics.
+
+    Args:
+        filepath: Path to the wrk output file.
+
+    Returns:
+        Parsed WrkMetrics object, or None if parsing fails.
+    """
     try:
-        with open(filepath, 'r') as f:
+        with open(filepath, encoding="utf-8") as f:
             content = f.read()
 
-        metrics = {
+        metrics_data: Dict[str, Any] = {
             "raw_output": content,
-            "requests_per_sec": None,
-            "transfer_per_sec": None,
-            "latency_avg": None,
-            "latency_stdev": None,
-            "latency_max": None,
-            "latency_p50": None,
-            "latency_p75": None,
-            "latency_p90": None,
-            "latency_p99": None,
-            "total_requests": None,
-            "total_transfer": None,
         }
 
         # Parse requests/sec
-        match = re.search(r'Requests/sec:\s+([\d.]+)', content)
+        match = re.search(r"Requests/sec:\s+([\d.]+)", content)
         if match:
-            metrics["requests_per_sec"] = float(match.group(1))
+            metrics_data["requests_per_sec"] = float(match.group(1))
 
         # Parse transfer/sec
-        match = re.search(r'Transfer/sec:\s+([\d.]+\w+)', content)
+        match = re.search(r"Transfer/sec:\s+([\d.]+\w+)", content)
         if match:
-            metrics["transfer_per_sec"] = match.group(1)
+            metrics_data["transfer_per_sec"] = match.group(1)
 
         # Parse latency distribution
-        match = re.search(r'Latency\s+([\d.]+)(\w+)\s+([\d.]+)(\w+)\s+([\d.]+)(\w+)', content)
+        match = re.search(r"Latency\s+([\d.]+)(\w+)\s+([\d.]+)(\w+)\s+([\d.]+)(\w+)", content)
         if match:
-            metrics["latency_avg"] = match.group(1) + match.group(2)
-            metrics["latency_stdev"] = match.group(3) + match.group(4)
-            metrics["latency_max"] = match.group(5) + match.group(6)
+            metrics_data["latency_avg"] = match.group(1) + match.group(2)
+            metrics_data["latency_stdev"] = match.group(3) + match.group(4)
+            metrics_data["latency_max"] = match.group(5) + match.group(6)
 
         # Parse percentiles if available
-        percentile_matches = re.findall(r'(\d+)%\s+([\d.]+)(\w+)', content)
+        percentile_matches = re.findall(r"(\d+)%\s+([\d.]+)(\w+)", content)
         for pct, val, unit in percentile_matches:
-            if pct == '50':
-                metrics["latency_p50"] = val + unit
-            elif pct == '75':
-                metrics["latency_p75"] = val + unit
-            elif pct == '90':
-                metrics["latency_p90"] = val + unit
-            elif pct == '99':
-                metrics["latency_p99"] = val + unit
+            if pct == "50":
+                metrics_data["latency_p50"] = val + unit
+            elif pct == "75":
+                metrics_data["latency_p75"] = val + unit
+            elif pct == "90":
+                metrics_data["latency_p90"] = val + unit
+            elif pct == "99":
+                metrics_data["latency_p99"] = val + unit
 
         # Parse total requests
-        match = re.search(r'(\d+) requests in', content)
+        match = re.search(r"(\d+) requests in", content)
         if match:
-            metrics["total_requests"] = int(match.group(1))
+            metrics_data["total_requests"] = int(match.group(1))
 
-        return metrics
-    except Exception as e:
+        return WrkMetrics(**metrics_data)
+    except (OSError, ValidationError) as e:
         print(f"Error parsing {filepath}: {e}")
         return None
 
-"""Calculate percentile from data"""
-def calculate_percentile(data, percentile):
+def calculate_percentile(data: List[float], percentile: float) -> Optional[float]:
+    """Calculate percentile from data.
+
+    Args:
+        data: List of numeric values.
+        percentile: Percentile to calculate (0-100).
+
+    Returns:
+        Calculated percentile value, or None if data is empty.
+    """
     if not data:
         return None
     sorted_data = sorted(data)
     index = int(len(sorted_data) * percentile / 100)
     return sorted_data[min(index, len(sorted_data) - 1)]
 
-"""Aggregate metrics by test type and service mesh"""
-def aggregate_metrics(results):
-    aggregated = {}
+def aggregate_metrics(results: List[Dict[str, Any]]) -> Dict[str, AggregatedMetrics]:
+    """Aggregate metrics by test type and service mesh.
+
+    Args:
+        results: List of benchmark result dictionaries.
+
+    Returns:
+        Dictionary mapping "{test_type}_{mesh_type}" keys to AggregatedMetrics objects.
+    """
+    aggregated: Dict[str, AggregatedMetrics] = {}
 
     for result in results:
-        test_type = result.get('test_type', 'unknown')
-        mesh_type = result.get('mesh_type', 'baseline')
+        test_type = result.get("test_type", "unknown")
+        mesh_type = result.get("mesh_type", "baseline")
 
         key = f"{test_type}_{mesh_type}"
 
         if key not in aggregated:
-            aggregated[key] = {
-                'test_type': test_type,
-                'mesh_type': mesh_type,
-                'runs': [],
-                'avg_throughput': None,
-                'avg_latency': None,
-                'p95_latency': None,
-                'p99_latency': None,
-                'success_rate': None,
-            }
+            aggregated[key] = AggregatedMetrics(
+                test_type=test_type,
+                mesh_type=mesh_type,
+            )
 
-        aggregated[key]['runs'].append(result)
+        aggregated[key].runs.append(result)
 
     # Calculate aggregates
     for key, data in aggregated.items():
-        runs = data['runs']
+        runs = data.runs
 
         # Extract throughput values
-        throughputs = []
-        latencies = []
+        throughputs: List[float] = []
+        latencies: List[float] = []
 
         for run in runs:
-            if 'metrics' in run:
-                if 'requests_per_sec' in run['metrics'] and run['metrics']['requests_per_sec']:
-                    throughputs.append(run['metrics']['requests_per_sec'])
-                if 'avg_latency_ms' in run['metrics'] and run['metrics']['avg_latency_ms']:
-                    latencies.append(run['metrics']['avg_latency_ms'])
+            if "metrics" in run:
+                if "requests_per_sec" in run["metrics"] and run["metrics"]["requests_per_sec"]:
+                    throughputs.append(run["metrics"]["requests_per_sec"])
+                if "avg_latency_ms" in run["metrics"] and run["metrics"]["avg_latency_ms"]:
+                    latencies.append(run["metrics"]["avg_latency_ms"])
 
         if throughputs:
-            data['avg_throughput'] = statistics.mean(throughputs)
+            data.avg_throughput = statistics.mean(throughputs)
         if latencies:
-            data['avg_latency'] = statistics.mean(latencies)
-            data['p95_latency'] = calculate_percentile(latencies, 95)
-            data['p99_latency'] = calculate_percentile(latencies, 99)
+            data.avg_latency = statistics.mean(latencies)
+            data.p95_latency = calculate_percentile(latencies, 95)
+            data.p99_latency = calculate_percentile(latencies, 99)
 
     return aggregated
 
-"""Generate HTML comparison table"""
-def generate_comparison_table(aggregated_data):
+def generate_comparison_table(aggregated_data: Dict[str, AggregatedMetrics]) -> str:
+    """Generate HTML comparison table.
+
+    Args:
+        aggregated_data: Dictionary of aggregated metrics.
+
+    Returns:
+        HTML string containing comparison tables.
+    """
     # Group by test type
-    by_test_type = {}
+    by_test_type: Dict[str, List[AggregatedMetrics]] = {}
     for key, data in aggregated_data.items():
-        test_type = data['test_type']
+        test_type = data.test_type
         if test_type not in by_test_type:
             by_test_type[test_type] = []
         by_test_type[test_type].append(data)
@@ -164,12 +225,14 @@ def generate_comparison_table(aggregated_data):
             </tr>
         """
 
-        for mesh_data in sorted(meshes, key=lambda x: x['mesh_type']):
-            mesh_type = mesh_data['mesh_type']
-            throughput = f"{mesh_data['avg_throughput']:.2f} req/s" if mesh_data['avg_throughput'] else "N/A"
-            avg_lat = f"{mesh_data['avg_latency']:.2f} ms" if mesh_data['avg_latency'] else "N/A"
-            p95_lat = f"{mesh_data['p95_latency']:.2f} ms" if mesh_data['p95_latency'] else "N/A"
-            p99_lat = f"{mesh_data['p99_latency']:.2f} ms" if mesh_data['p99_latency'] else "N/A"
+        for mesh_data in sorted(meshes, key=lambda x: x.mesh_type):
+            mesh_type = mesh_data.mesh_type
+            throughput = (
+                f"{mesh_data.avg_throughput:.2f} req/s" if mesh_data.avg_throughput else "N/A"
+            )
+            avg_lat = f"{mesh_data.avg_latency:.2f} ms" if mesh_data.avg_latency else "N/A"
+            p95_lat = f"{mesh_data.p95_latency:.2f} ms" if mesh_data.p95_latency else "N/A"
+            p99_lat = f"{mesh_data.p99_latency:.2f} ms" if mesh_data.p99_latency else "N/A"
 
             html += f"""
             <tr>
@@ -178,7 +241,7 @@ def generate_comparison_table(aggregated_data):
                 <td>{avg_lat}</td>
                 <td>{p95_lat}</td>
                 <td>{p99_lat}</td>
-                <td>{len(mesh_data['runs'])}</td>
+                <td>{len(mesh_data.runs)}</td>
             </tr>
             """
 
@@ -186,24 +249,38 @@ def generate_comparison_table(aggregated_data):
 
     return html
 
-"""Generate JavaScript data for charts"""
-def generate_chart_data(aggregated_data):
+def generate_chart_data(aggregated_data: Dict[str, AggregatedMetrics]) -> str:
+    """Generate JavaScript data for charts.
+
+    Args:
+        aggregated_data: Dictionary of aggregated metrics.
+
+    Returns:
+        JSON string containing chart data.
+    """
     # Group by test type
-    by_test_type = {}
+    by_test_type: Dict[str, ChartData] = {}
     for key, data in aggregated_data.items():
-        test_type = data['test_type']
+        test_type = data.test_type
         if test_type not in by_test_type:
-            by_test_type[test_type] = {'labels': [], 'throughput': [], 'latency': []}
+            by_test_type[test_type] = ChartData()
 
-        by_test_type[test_type]['labels'].append(data['mesh_type'])
-        by_test_type[test_type]['throughput'].append(data['avg_throughput'] or 0)
-        by_test_type[test_type]['latency'].append(data['avg_latency'] or 0)
+        by_test_type[test_type].labels.append(data.mesh_type)
+        by_test_type[test_type].throughput.append(data.avg_throughput or 0)
+        by_test_type[test_type].latency.append(data.avg_latency or 0)
 
-    return json.dumps(by_test_type)
+    # Convert Pydantic models to dict for JSON serialization
+    serializable_data = {k: v.model_dump() for k, v in by_test_type.items()}
+    return json.dumps(serializable_data)
 
 
-"""Generate enhanced HTML report with charts and metrics"""
-def generate_html_report(results, output_file):
+def generate_html_report(results: List[Dict[str, Any]], output_file: Path) -> None:
+    """Generate enhanced HTML report with charts and metrics.
+
+    Args:
+        results: List of benchmark result dictionaries.
+        output_file: Path to the output HTML file.
+    """
     # Aggregate data
     aggregated = aggregate_metrics(results)
     comparison_table = generate_comparison_table(aggregated)
@@ -504,20 +581,31 @@ def generate_html_report(results, output_file):
 </html>
 """
 
-    with open(output_file, 'w') as f:
+    with open(output_file, "w", encoding="utf-8") as f:
         f.write(html)
 
     print(f"HTML report generated: {output_file}")
 
 
-def main():
-    parser = argparse.ArgumentParser(description='Generate service mesh benchmark reports')
-    parser.add_argument('--results-dir', default='benchmarks/results',
-                        help='Directory containing benchmark results')
-    parser.add_argument('--output', default='benchmarks/results/report.html',
-                        help='Output report file')
-    parser.add_argument('--format', choices=['html', 'json', 'csv'], default='html',
-                        help='Report format')
+def main() -> None:
+    """Main entry point for the report generator."""
+    parser = argparse.ArgumentParser(description="Generate service mesh benchmark reports")
+    parser.add_argument(
+        "--results-dir",
+        default="benchmarks/results",
+        help="Directory containing benchmark results",
+    )
+    parser.add_argument(
+        "--output",
+        default="benchmarks/results/report.html",
+        help="Output report file",
+    )
+    parser.add_argument(
+        "--format",
+        choices=["html", "json", "csv"],
+        default="html",
+        help="Report format",
+    )
 
     args = parser.parse_args()
 
@@ -531,8 +619,8 @@ def main():
     print(f"Scanning for results in: {results_dir}")
 
     # Collect all JSON result files
-    results = []
-    for json_file in results_dir.glob('*.json'):
+    results: List[Dict[str, Any]] = []
+    for json_file in results_dir.glob("*.json"):
         data = load_json_file(json_file)
         if data:
             results.append(data)
@@ -543,38 +631,47 @@ def main():
         print("No results found! Run some benchmarks first.")
         return
 
+    output_path = Path(args.output)
+
     # Generate report based on format
-    if args.format == 'html':
-        generate_html_report(results, args.output)
-    elif args.format == 'json':
+    if args.format == "html":
+        generate_html_report(results, output_path)
+    elif args.format == "json":
+        aggregated = aggregate_metrics(results)
+        # Convert AggregatedMetrics to dict for JSON serialization
+        aggregated_dict = {k: v.model_dump() for k, v in aggregated.items()}
+
         output_data = {
             "generated_at": datetime.now().isoformat(),
             "total_tests": len(results),
             "results": results,
-            "aggregated": aggregate_metrics(results)
+            "aggregated": aggregated_dict,
         }
-        with open(args.output, 'w') as f:
+        with open(output_path, "w", encoding="utf-8") as f:
             json.dump(output_data, f, indent=2)
-        print(f"JSON report generated: {args.output}")
-    elif args.format == 'csv':
+        print(f"JSON report generated: {output_path}")
+    elif args.format == "csv":
         # Enhanced CSV export
-        import csv
-        with open(args.output, 'w', newline='') as f:
+        with open(output_path, "w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
-            writer.writerow(['Test Type', 'Service Mesh', 'Timestamp', 'Throughput', 'Latency', 'Status'])
+            writer.writerow(
+                ["Test Type", "Service Mesh", "Timestamp", "Throughput", "Latency", "Status"]
+            )
             for result in results:
-                throughput = result.get('metrics', {}).get('requests_per_sec', 'N/A')
-                latency = result.get('metrics', {}).get('avg_latency_ms', 'N/A')
-                writer.writerow([
-                    result.get('test_type', 'Unknown'),
-                    result.get('mesh_type', 'baseline'),
-                    result.get('timestamp', 'N/A'),
-                    throughput,
-                    latency,
-                    'Completed'
-                ])
-        print(f"CSV report generated: {args.output}")
+                throughput = result.get("metrics", {}).get("requests_per_sec", "N/A")
+                latency = result.get("metrics", {}).get("avg_latency_ms", "N/A")
+                writer.writerow(
+                    [
+                        result.get("test_type", "Unknown"),
+                        result.get("mesh_type", "baseline"),
+                        result.get("timestamp", "N/A"),
+                        throughput,
+                        latency,
+                        "Completed",
+                    ]
+                )
+        print(f"CSV report generated: {output_path}")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

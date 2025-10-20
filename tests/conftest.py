@@ -1,14 +1,16 @@
-"""
-Pytest configuration and shared fixtures for service mesh benchmark tests
-"""
-import os
-import pytest
-import subprocess
-import json
-from pathlib import Path
-from kubernetes import client, config
-from typing import Dict, Optional
+"""Pytest configuration and shared fixtures for service mesh benchmark tests."""
 
+import json
+import os
+import subprocess
+import time
+from pathlib import Path
+from typing import Any, Callable, Dict, Optional
+
+import pytest
+from kubernetes import client, config as k8s_config
+
+from tests.models import MeshType, TestConfig
 
 # Test configuration
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -18,67 +20,67 @@ BENCHMARKS_DIR = PROJECT_ROOT / "benchmarks" / "scripts"
 RESULTS_DIR = PROJECT_ROOT / "benchmarks" / "results"
 
 
-"""Add custom command-line options"""
-def pytest_addoption(parser):
+def pytest_addoption(parser: pytest.Parser) -> None:
+    """Add custom command-line options."""
     parser.addoption(
         "--mesh-type",
         action="store",
         default="baseline",
-        help="Service mesh type: baseline, istio, cilium, linkerd"
+        help="Service mesh type: baseline, istio, cilium, linkerd, consul",
     )
     parser.addoption(
         "--skip-infra",
         action="store_true",
-        help="Skip infrastructure tests (assume already deployed)"
+        help="Skip infrastructure tests (assume already deployed)",
     )
     parser.addoption(
         "--kubeconfig",
         action="store",
         default=os.getenv("KUBECONFIG", "~/.kube/config"),
-        help="Path to kubeconfig file"
+        help="Path to kubeconfig file",
     )
     parser.addoption(
         "--test-duration",
         action="store",
         default="60",
-        help="Default test duration in seconds"
+        help="Default test duration in seconds",
     )
     parser.addoption(
         "--concurrent-connections",
         action="store",
         default="100",
-        help="Default concurrent connections for load tests"
+        help="Default concurrent connections for load tests",
     )
 
 
-"""Get the service mesh type from command line"""
 @pytest.fixture(scope="session")
-def mesh_type(request):
-    return request.config.getoption("--mesh-type")
+def mesh_type(request: pytest.FixtureRequest) -> str:
+    """Get the service mesh type from command line."""
+    return str(request.config.getoption("--mesh-type"))
 
 
-"""Global test configuration"""
 @pytest.fixture(scope="session")
-def test_config(request):
-    return {
-        "mesh_type": request.config.getoption("--mesh-type"),
-        "skip_infra": request.config.getoption("--skip-infra"),
-        "kubeconfig": request.config.getoption("--kubeconfig"),
-        "test_duration": int(request.config.getoption("--test-duration")),
-        "concurrent_connections": int(request.config.getoption("--concurrent-connections")),
-        "project_root": PROJECT_ROOT,
-        "terraform_dir": TERRAFORM_DIR,
-        "workloads_dir": WORKLOADS_DIR,
-        "benchmarks_dir": BENCHMARKS_DIR,
-        "results_dir": RESULTS_DIR,
-    }
+def test_config(request: pytest.FixtureRequest) -> TestConfig:
+    """Global test configuration using Pydantic model."""
+    return TestConfig(
+        mesh_type=MeshType(request.config.getoption("--mesh-type")),
+        skip_infra=bool(request.config.getoption("--skip-infra")),
+        kubeconfig=Path(request.config.getoption("--kubeconfig")).expanduser(),
+        test_duration=int(request.config.getoption("--test-duration")),
+        concurrent_connections=int(request.config.getoption("--concurrent-connections")),
+        project_root=PROJECT_ROOT,
+        terraform_dir=TERRAFORM_DIR,
+        workloads_dir=WORKLOADS_DIR,
+        benchmarks_dir=BENCHMARKS_DIR,
+        results_dir=RESULTS_DIR,
+    )
 
 
-"""Kubernetes API client"""
 @pytest.fixture(scope="session")
-def k8s_client(test_config):
+def k8s_client(test_config: TestConfig) -> Dict[str, Any]:
+    """Kubernetes API client."""
     try:
-        config.load_kube_config(config_file=test_config["kubeconfig"])
+        k8s_config.load_kube_config(config_file=str(test_config.kubeconfig))
         return {
             "core": client.CoreV1Api(),
             "apps": client.AppsV1Api(),
@@ -89,64 +91,62 @@ def k8s_client(test_config):
         pytest.skip(f"Cannot load kubeconfig: {e}")
 
 
-"""Get Terraform outputs"""
 @pytest.fixture(scope="session")
-def terraform_outputs(test_config):
+def terraform_outputs(test_config: TestConfig) -> Dict[str, Any]:
+    """Get Terraform outputs."""
     try:
         result = subprocess.run(
             ["terraform", "output", "-json"],
-            cwd=test_config["terraform_dir"],
+            cwd=test_config.terraform_dir,
             capture_output=True,
             text=True,
-            check=True
+            check=True,
+            timeout=30,
         )
         return json.loads(result.stdout)
     except subprocess.CalledProcessError:
         return {}
-    except FileNotFoundError:
-        pytest.skip("Terraform not found")
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pytest.skip("Terraform not found or timed out")
 
 
-"""Execute kubectl commands"""
 @pytest.fixture(scope="function")
-def kubectl_exec():
-    def _exec(args: list, namespace: Optional[str] = None, check: bool = True) -> subprocess.CompletedProcess:
+def kubectl_exec() -> Callable[[list[str], Optional[str], bool], subprocess.CompletedProcess]:
+    """Execute kubectl commands."""
+
+    def _exec(
+        args: list[str], namespace: Optional[str] = None, check: bool = True
+    ) -> subprocess.CompletedProcess:
         cmd = ["kubectl"]
         if namespace:
             cmd.extend(["-n", namespace])
         cmd.extend(args)
 
-        return subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            check=check
-        )
+        return subprocess.run(cmd, capture_output=True, text=True, check=check, timeout=60)
+
     return _exec
 
 
-"""Wait for pods to be ready"""
 @pytest.fixture(scope="function")
-def wait_for_pods(k8s_client):
-    import time
-        """Wait for pods matching label selector to be ready
+def wait_for_pods(k8s_client: Dict[str, Any]) -> Callable[[str, str, int], bool]:
+    """Wait for pods to be ready.
 
-        Args:
-            namespace: Kubernetes namespace
-            label_selector: Label selector (e.g., "app=http-server")
-            timeout: Timeout in seconds
+    Args:
+        namespace: Kubernetes namespace
+        label_selector: Label selector (e.g., "app=http-server")
+        timeout: Timeout in seconds
 
-        Returns:
-            True if all pods are ready, False otherwise
-        """
+    Returns:
+        True if all pods are ready, False otherwise
+    """
+
     def _wait(namespace: str, label_selector: str, timeout: int = 300) -> bool:
         start_time = time.time()
 
         while time.time() - start_time < timeout:
             try:
                 pods = k8s_client["core"].list_namespaced_pod(
-                    namespace=namespace,
-                    label_selector=label_selector
+                    namespace=namespace, label_selector=label_selector
                 )
 
                 if not pods.items:
@@ -160,8 +160,7 @@ def wait_for_pods(k8s_client):
                         break
 
                     ready_condition = next(
-                        (c for c in pod.status.conditions if c.type == "Ready"),
-                        None
+                        (c for c in pod.status.conditions if c.type == "Ready"), None
                     )
 
                     if not ready_condition or ready_condition.status != "True":
@@ -182,21 +181,19 @@ def wait_for_pods(k8s_client):
     return _wait
 
 
-"""Run benchmark script and return results"""
 @pytest.fixture(scope="function")
-def run_benchmark():
+def run_benchmark() -> Callable[[str, Optional[Dict[str, str]]], Dict[str, Any]]:
+    """Run a benchmark script.
+
+    Args:
+        script_name: Name of the script (e.g., "http-load-test.sh")
+        env_vars: Environment variables to set
+
+    Returns:
+        Dictionary with results
     """
-        Run a benchmark script
 
-        Args:
-            script_name: Name of the script (e.g., "http-load-test.sh")
-            env_vars: Environment variables to set
-
-        Returns:
-            Dictionary with results
-        """
-    def _run(script_name: str, env_vars: Optional[Dict[str, str]] = None) -> Dict:
-        
+    def _run(script_name: str, env_vars: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
         script_path = BENCHMARKS_DIR / script_name
 
         if not script_path.exists():
@@ -211,7 +208,8 @@ def run_benchmark():
             cwd=BENCHMARKS_DIR,
             env=env,
             capture_output=True,
-            text=True
+            text=True,
+            timeout=600,  # 10 minute timeout
         )
 
         # Try to find and parse the JSON output file
@@ -225,46 +223,30 @@ def run_benchmark():
         return {
             "stdout": result.stdout,
             "stderr": result.stderr,
-            "returncode": result.returncode
+            "returncode": result.returncode,
         }
 
     return _run
 
 
-"""Ensure results directory exists"""
 @pytest.fixture(autouse=True, scope="session")
-def ensure_results_dir():
+def ensure_results_dir() -> None:
+    """Ensure results directory exists."""
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     yield
     # Cleanup is optional - you might want to keep results
 
 
-"""Register custom markers"""
-def pytest_configure(config):
-    config.addinivalue_line(
-        "markers", "phase1: Pre-deployment tests"
-    )
-    config.addinivalue_line(
-        "markers", "phase2: Infrastructure tests"
-    )
-    config.addinivalue_line(
-        "markers", "phase3: Baseline tests"
-    )
-    config.addinivalue_line(
-        "markers", "phase4: Service mesh tests"
-    )
-    config.addinivalue_line(
-        "markers", "phase5: Cilium-specific tests"
-    )
-    config.addinivalue_line(
-        "markers", "phase6: Comparative analysis tests"
-    )
-    config.addinivalue_line(
-        "markers", "phase7: Stress and edge case tests"
-    )
-    config.addinivalue_line(
-        "markers", "slow: Marks tests as slow (deselect with '-m \"not slow\"')"
-    )
+def pytest_configure(config: pytest.Config) -> None:
+    """Register custom markers."""
+    config.addinivalue_line("markers", "phase1: Pre-deployment tests")
+    config.addinivalue_line("markers", "phase2: Infrastructure tests")
+    config.addinivalue_line("markers", "phase3: Baseline tests")
+    config.addinivalue_line("markers", "phase4: Service mesh tests")
+    config.addinivalue_line("markers", "phase5: Cilium-specific tests")
+    config.addinivalue_line("markers", "phase6: Comparative analysis tests")
+    config.addinivalue_line("markers", "phase7: Stress and edge case tests")
+    config.addinivalue_line("markers", "slow: Marks tests as slow (deselect with '-m \"not slow\"')")
     config.addinivalue_line(
         "markers", "integration: Integration tests requiring full infrastructure"
     )
