@@ -107,3 +107,16 @@ Thumbs.db
 # Reports
 reports/
 *.pdf
+
+# Analysis Reports
+PROJECT_ANALYSIS_REPORT.md
+PROJECT_ANALYSIS_REPORT.pdf
+
+# eBPF Build Artifacts
+ebpf-probes/**/target/
+ebpf-probes/**/*.lock
+ebpf-probes/IMPLEMENTATION_STATUS.md
+
+# Rust
+Cargo.lock
+target/

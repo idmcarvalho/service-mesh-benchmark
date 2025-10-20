@@ -2,6 +2,28 @@
 
 This directory contains custom eBPF programs written in Rust using the [Aya](https://github.com/aya-rs/aya) library for advanced service mesh metrics collection.
 
+## 🎯 Quick Start
+
+```bash
+# 1. Install dependencies (see SETUP.md for details)
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+wget https://apt.llvm.org/llvm.sh && chmod +x llvm.sh && sudo ./llvm.sh 19
+cargo install bpf-linker --no-default-features --features llvm-19
+
+# 2. Build the latency probe
+cd latency-probe
+./build.sh
+
+# 3. Run it
+sudo ./latency-probe-userspace/target/release/latency-probe --duration 60
+```
+
+## 📖 Documentation
+
+- **[SETUP.md](SETUP.md)** - Complete environment setup guide
+- **[latency-probe/README.md](latency-probe/README.md)** - Latency probe documentation
+- **[Makefile](Makefile)** - Build automation
+
 ## Why Aya?
 
 Aya is a pure-Rust eBPF library that offers several advantages:
@@ -14,20 +36,28 @@ Aya is a pure-Rust eBPF library that offers several advantages:
 
 ## Probes Included
 
-### 1. `latency-probe` - Network Latency Tracking
+### ✅ 1. `latency-probe` - Network Latency Tracking **[IMPLEMENTED]**
 
 Tracks service-to-service latency at the kernel level without application modification.
 
+**Status**: ✅ **Production-ready implementation**
+
 **Metrics Collected**:
-- Request/response round-trip time
+- Request/response round-trip time (nanosecond precision)
 - Per-connection latency histograms
+- Percentiles (p50, p75, p90, p95, p99, p999)
 - Service mesh overhead calculation
+- Event type breakdown (send, receive, cleanup)
 
 **Use Case**: Compare actual network latency vs service mesh reported latency
 
-### 2. `packet-drop-probe` - Packet Drop Analysis
+**See**: [latency-probe/README.md](latency-probe/README.md)
+
+### 🚧 2. `packet-drop-probe` - Packet Drop Analysis **[PLANNED]**
 
 Monitors packet drops and identifies causes (policy, congestion, errors).
+
+**Status**: 🚧 Planned for implementation
 
 **Metrics Collected**:
 - Drop location (TC, XDP, netfilter)
@@ -36,9 +66,11 @@ Monitors packet drops and identifies causes (policy, congestion, errors).
 
 **Use Case**: Identify network policy impact on performance
 
-### 3. `connection-tracker` - Connection Lifecycle Monitoring
+### 🚧 3. `connection-tracker` - Connection Lifecycle Monitoring **[PLANNED]**
 
 Tracks TCP connection establishment and termination.
+
+**Status**: 🚧 Planned for implementation
 
 **Metrics Collected**:
 - Connection setup time (SYN -> SYN-ACK -> ACK)
