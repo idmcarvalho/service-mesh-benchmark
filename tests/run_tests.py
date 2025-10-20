@@ -78,7 +78,7 @@ def main():
 
     parser.add_argument(
         "--mesh-type",
-        choices=["baseline", "istio", "cilium", "linkerd"],
+        choices=["baseline", "istio", "cilium", "linkerd", "consul"],
         default="baseline",
         help="Service mesh type to test"
     )

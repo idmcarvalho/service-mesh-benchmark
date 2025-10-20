@@ -24,7 +24,7 @@ class TestComparativeAnalysis:
 
         # Check which mesh types have results
         mesh_types = []
-        for mesh_type in ["istio", "cilium", "linkerd"]:
+        for mesh_type in ["istio", "cilium", "linkerd", "consul"]:
             http_file = results_dir / f"{mesh_type}_http_metrics.json"
             if http_file.exists():
                 mesh_types.append(mesh_type)
@@ -66,7 +66,7 @@ class TestComparativeAnalysis:
             "0%"
         ])
 
-        for mesh_type in ["istio", "cilium", "linkerd"]:
+        for mesh_type in ["istio", "cilium", "linkerd", "consul"]:
             mesh_file = results_dir / f"{mesh_type}_http_metrics.json"
             if mesh_file.exists():
                 with open(mesh_file) as f:
@@ -122,7 +122,7 @@ class TestComparativeAnalysis:
             "0%"
         ])
 
-        for mesh_type in ["istio", "cilium", "linkerd"]:
+        for mesh_type in ["istio", "cilium", "linkerd", "consul"]:
             mesh_file = results_dir / f"{mesh_type}_http_metrics.json"
             if mesh_file.exists():
                 with open(mesh_file) as f:
@@ -172,7 +172,7 @@ class TestComparativeAnalysis:
             "-"
         ])
 
-        for mesh_type in ["istio", "cilium", "linkerd"]:
+        for mesh_type in ["istio", "cilium", "linkerd", "consul"]:
             overhead_file = results_dir / f"{mesh_type}_overhead.json"
             if overhead_file.exists():
                 with open(overhead_file) as f:
@@ -209,7 +209,7 @@ class TestComparativeAnalysis:
         }
 
         # Detect which meshes were tested
-        for mesh_type in ["baseline", "istio", "cilium", "linkerd"]:
+        for mesh_type in ["baseline", "istio", "cilium", "linkerd", "consul"]:
             http_file = results_dir / f"{mesh_type}_http_metrics.json"
             if http_file.exists():
                 summary["meshes_tested"].append(mesh_type)
@@ -255,7 +255,7 @@ class TestComparativeAnalysis:
         results_dir = test_config["results_dir"]
 
         meshes = []
-        for mesh_type in ["istio", "cilium", "linkerd"]:
+        for mesh_type in ["istio", "cilium", "linkerd", "consul"]:
             http_file = results_dir / f"{mesh_type}_http_metrics.json"
             overhead_file = results_dir / f"{mesh_type}_overhead.json"
 

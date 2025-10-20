@@ -1,0 +1,168 @@
+---
+- name: Setup Consul Service Mesh
+  hosts: master
+  become: yes
+  vars:
+    consul_version: "1.17.0"
+    consul_helm_chart_version: "1.3.0"
+    consul_k8s_version: "1.3.0"
+
+  tasks:
+    - name: Add Consul Helm repository
+      shell: |
+        helm repo add hashicorp https://helm.releases.hashicorp.com
+        helm repo update
+      become_user: ubuntu
+      environment:
+        KUBECONFIG: "/home/ubuntu/.kube/config"
+
+    - name: Check if Consul namespace exists
+      shell: kubectl get namespace consul
+      register: consul_namespace
+      ignore_errors: yes
+      become_user: ubuntu
+      environment:
+        KUBECONFIG: "/home/ubuntu/.kube/config"
+
+    - name: Create Consul namespace
+      shell: kubectl create namespace consul
+      when: consul_namespace.rc != 0
+      become_user: ubuntu
+      environment:
+        KUBECONFIG: "/home/ubuntu/.kube/config"
+
+    - name: Check if Consul is already installed
+      shell: helm list -n consul | grep consul
+      register: consul_installed
+      ignore_errors: yes
+      become_user: ubuntu
+      environment:
+        KUBECONFIG: "/home/ubuntu/.kube/config"
+
+    - name: Install Consul with service mesh enabled
+      shell: |
+        helm install consul hashicorp/consul \
+          --namespace consul \
+          --version {{ consul_helm_chart_version }} \
+          --set global.name=consul \
+          --set global.datacenter=dc1 \
+          --set connectInject.enabled=true \
+          --set connectInject.default=true \
+          --set controller.enabled=true \
+          --set meshGateway.enabled=true \
+          --set meshGateway.replicas=1 \
+          --set ui.enabled=true \
+          --set ui.service.type=ClusterIP \
+          --set client.enabled=true \
+          --set client.grpc=true \
+          --set server.replicas=1 \
+          --set server.bootstrapExpect=1 \
+          --set server.storage="10Gi" \
+          --set global.metrics.enabled=true \
+          --set global.metrics.enableAgentMetrics=true \
+          --set global.metrics.enableGatewayMetrics=true \
+          --set ui.metrics.enabled=true \
+          --set ui.metrics.provider="prometheus"
+      when: consul_installed.rc != 0
+      become_user: ubuntu
+      environment:
+        KUBECONFIG: "/home/ubuntu/.kube/config"
+
+    - name: Download Consul K8s CLI
+      get_url:
+        url: "https://releases.hashicorp.com/consul-k8s/{{ consul_k8s_version }}/consul-k8s_{{ consul_k8s_version }}_linux_amd64.zip"
+        dest: "/tmp/consul-k8s.zip"
+        mode: '0644'
+
+    - name: Install unzip if not present
+      apt:
+        name: unzip
+        state: present
+        update_cache: yes
+
+    - name: Extract Consul K8s CLI
+      unarchive:
+        src: "/tmp/consul-k8s.zip"
+        dest: "/usr/local/bin/"
+        remote_src: yes
+
+    - name: Make Consul K8s CLI executable
+      file:
+        path: "/usr/local/bin/consul-k8s"
+        mode: '0755'
+
+    - name: Wait for Consul server to be ready
+      shell: kubectl wait --for=condition=ready --timeout=300s pod -l app=consul -l component=server -n consul
+      become_user: ubuntu
+      environment:
+        KUBECONFIG: "/home/ubuntu/.kube/config"
+      retries: 5
+      delay: 30
+
+    - name: Wait for Consul connect-inject to be ready
+      shell: kubectl wait --for=condition=available --timeout=300s deployment/consul-connect-injector -n consul
+      become_user: ubuntu
+      environment:
+        KUBECONFIG: "/home/ubuntu/.kube/config"
+      retries: 5
+      delay: 15
+
+    - name: Enable automatic sidecar injection for default namespace
+      shell: kubectl label namespace default consul.hashicorp.com/connect-inject=true --overwrite
+      become_user: ubuntu
+      environment:
+        KUBECONFIG: "/home/ubuntu/.kube/config"
+
+    - name: Enable automatic sidecar injection for benchmark namespaces
+      shell: |
+        kubectl label namespace http-benchmark consul.hashicorp.com/connect-inject=true --overwrite || true
+        kubectl label namespace grpc-benchmark consul.hashicorp.com/connect-inject=true --overwrite || true
+        kubectl label namespace websocket-benchmark consul.hashicorp.com/connect-inject=true --overwrite || true
+        kubectl label namespace db-benchmark consul.hashicorp.com/connect-inject=true --overwrite || true
+      become_user: ubuntu
+      environment:
+        KUBECONFIG: "/home/ubuntu/.kube/config"
+      ignore_errors: yes
+
+    - name: Get Consul installation status
+      shell: kubectl get all -n consul
+      become_user: ubuntu
+      environment:
+        KUBECONFIG: "/home/ubuntu/.kube/config"
+      register: consul_status_output
+
+    - name: Show Consul status
+      debug:
+        msg: "{{ consul_status_output.stdout }}"
+
+    - name: Get Consul version from server
+      shell: |
+        kubectl exec -n consul consul-server-0 -- consul version
+      become_user: ubuntu
+      environment:
+        KUBECONFIG: "/home/ubuntu/.kube/config"
+      register: consul_version_output
+      ignore_errors: yes
+
+    - name: Show Consul version
+      debug:
+        msg: "{{ consul_version_output.stdout }}"
+      when: consul_version_output.rc == 0
+
+    - name: Display service mesh injection status
+      shell: |
+        echo "Consul Connect Inject Status:"
+        kubectl get deployment consul-connect-injector -n consul
+        echo ""
+        echo "Labeled Namespaces:"
+        kubectl get namespaces --show-labels | grep consul
+      become_user: ubuntu
+      environment:
+        KUBECONFIG: "/home/ubuntu/.kube/config"
+      register: injection_status
+      ignore_errors: yes
+
+    - name: Show injection status
+      debug:
+        msg: "{{ injection_status.stdout }}"
+      when: injection_status.rc == 0

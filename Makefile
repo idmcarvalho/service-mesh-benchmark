@@ -84,6 +84,10 @@ install-cilium: ## Install Cilium service mesh
 	@echo "Installing Cilium..."
 	@ansible-playbook -i $(ANSIBLE_DIR)/inventory $(ANSIBLE_DIR)/playbooks/setup-cilium.yml
 
+install-consul: ## Install Consul service mesh
+	@echo "Installing Consul..."
+	@ansible-playbook -i $(ANSIBLE_DIR)/inventory $(ANSIBLE_DIR)/playbooks/setup-consul.yml
+
 test-http: ## Run HTTP load test
 	@echo "Running HTTP load test..."
 	@cd $(BENCHMARKS_DIR) && bash http-load-test.sh
@@ -224,6 +228,10 @@ test-mesh-linkerd: ## Run Linkerd service mesh tests
 	@echo "Running Linkerd tests..."
 	@cd $(TESTS_DIR) && $(PYTEST) -v -m phase4 --mesh-type=linkerd
 
+test-mesh-consul: ## Run Consul service mesh tests
+	@echo "Running Consul tests..."
+	@cd $(TESTS_DIR) && $(PYTEST) -v -m phase4 --mesh-type=consul
+
 test-compare: ## Run comparative analysis tests (Phase 6)
 	@echo "Running comparative analysis..."
 	@cd $(TESTS_DIR) && $(PYTEST) -v -m phase6
@@ -248,9 +256,13 @@ test-full-cilium: ## Run complete test suite for Cilium
 	@echo "Running full test suite for Cilium..."
 	@cd $(TESTS_DIR) && $(PYTHON) run_tests.py --phase=all --mesh-type=cilium
 
+test-full-consul: ## Run complete test suite for Consul
+	@echo "Running full test suite for Consul..."
+	@cd $(TESTS_DIR) && $(PYTHON) run_tests.py --phase=all --mesh-type=consul
+
 test-orchestrated: ## Run orchestrated test suite
 	@echo "Running orchestrated tests..."
-	@echo "Usage: make test-orchestrated MESH_TYPE=<baseline|istio|cilium|linkerd> [PHASE=<phase>]"
+	@echo "Usage: make test-orchestrated MESH_TYPE=<baseline|istio|cilium|linkerd|consul> [PHASE=<phase>]"
 	@cd $(TESTS_DIR) && $(PYTHON) run_tests.py \
 		--phase=$(or $(PHASE),all) \
 		--mesh-type=$(or $(MESH_TYPE),baseline) \
@@ -259,7 +271,7 @@ test-orchestrated: ## Run orchestrated test suite
 
 test-comprehensive: ## Run comprehensive testing workflow (all phases, all meshes)
 	@echo "Running comprehensive test suite..."
-	@echo "This will run tests for baseline, Istio, and Cilium"
+	@echo "This will run tests for baseline, Istio, Cilium, and Consul"
 	@echo ""
 	@echo "Step 1: Pre-deployment validation..."
 	@$(MAKE) test-validate
@@ -276,7 +288,10 @@ test-comprehensive: ## Run comprehensive testing workflow (all phases, all meshe
 	@echo "Step 5: Cilium tests..."
 	@$(MAKE) test-full-cilium
 	@echo ""
-	@echo "Step 6: Comparative analysis..."
+	@echo "Step 6: Consul tests..."
+	@$(MAKE) test-full-consul
+	@echo ""
+	@echo "Step 7: Comparative analysis..."
 	@$(MAKE) test-compare
 	@echo ""
 	@echo "✅ Comprehensive testing complete!"
@@ -366,6 +381,10 @@ coverage-istio: ## Run Istio tests with coverage
 coverage-cilium: ## Run Cilium tests with coverage
 	@echo "Running Cilium tests with coverage..."
 	@cd $(TESTS_DIR) && $(PYTEST) -v -m phase4 --mesh-type=cilium --cov=. --cov-report=html --cov-report=term-missing
+
+coverage-consul: ## Run Consul tests with coverage
+	@echo "Running Consul tests with coverage..."
+	@cd $(TESTS_DIR) && $(PYTEST) -v -m phase4 --mesh-type=consul --cov=. --cov-report=html --cov-report=term-missing
 
 coverage-open: ## Open HTML coverage report in browser
 	@echo "Opening coverage report..."

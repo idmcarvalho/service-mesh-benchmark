@@ -42,6 +42,18 @@ class TestServiceMeshDeployment:
         elif mesh_type == "linkerd":
             assert "linkerd" in namespace_names, "Linkerd not installed"
 
+        elif mesh_type == "consul":
+            assert "consul" in namespace_names, "Consul not installed"
+
+            # Check Consul pods
+            pods = k8s_client["core"].list_namespaced_pod(namespace="consul")
+            assert len(pods.items) > 0, "No Consul pods found"
+
+            # Check for key components
+            pod_names = [p.metadata.name for p in pods.items]
+            assert any("consul-server" in name for name in pod_names), "Consul server not found"
+            assert any("consul-connect-injector" in name for name in pod_names), "Consul connect-injector not found"
+
     """Deploy workloads with service mesh"""
     def test_deploy_workloads_with_mesh(self, kubectl_exec, test_config):
         workloads = [
@@ -100,6 +112,11 @@ class TestServiceMeshDeployment:
             elif mesh_type == "linkerd":
                 assert "linkerd-proxy" in container_names, \
                     f"Linkerd sidecar not injected in pod {pod.metadata.name}"
+
+            elif mesh_type == "consul":
+                # Consul uses "consul-connect-envoy-sidecar" or "envoy-sidecar"
+                assert any("consul" in name or "envoy-sidecar" in name for name in container_names), \
+                    f"Consul sidecar not injected in pod {pod.metadata.name}"
     
     """Test connectivity through service mesh"""
     def test_service_mesh_connectivity(self, kubectl_exec, mesh_type):
@@ -145,6 +162,15 @@ class TestServiceMeshDeployment:
                 check=False
             )
             assert result.returncode == 0
+
+        elif mesh_type == "consul":
+            # Consul Connect enables mTLS by default for service-to-service communication
+            # Verify connect-injector is running
+            result = kubectl_exec(
+                ["get", "deployment", "consul-connect-injector", "-n", "consul"],
+                check=False
+            )
+            assert result.returncode == 0, "Consul Connect injector not found"
 
 
 """Service mesh performance tests"""
@@ -259,6 +285,18 @@ class TestServiceMeshPerformance:
                     control_plane_cpu += cpu_value
                     control_plane_memory += memory_value
                 elif "cilium" in pod_name and namespace == "kube-system":
+                    data_plane_cpu += cpu_value
+                    data_plane_memory += memory_value
+
+            elif mesh_type == "consul":
+                if namespace == "consul":
+                    if "consul-server" in pod_name or "consul-controller" in pod_name or "consul-connect-injector" in pod_name:
+                        control_plane_cpu += cpu_value
+                        control_plane_memory += memory_value
+                    elif "consul-client" in pod_name:
+                        data_plane_cpu += cpu_value
+                        data_plane_memory += memory_value
+                elif "envoy-sidecar" in pod_name or "consul-connect" in pod_name:
                     data_plane_cpu += cpu_value
                     data_plane_memory += memory_value
 
