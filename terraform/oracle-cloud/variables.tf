@@ -40,33 +40,67 @@ variable "ssh_public_key_path" {
 }
 
 # Security Configuration
+# SECURITY: No defaults for CIDR blocks - must be explicitly set
 variable "allowed_ssh_cidr" {
-  description = "CIDR block allowed to SSH into instances (your IP)"
+  description = "CIDR block allowed to SSH into instances (e.g., 203.0.113.0/24). Must specify your actual IP range for security."
   type        = string
-  default     = "0.0.0.0/0" # Change this to your IP for security
+  # NO DEFAULT - force user to specify
+
   validation {
     condition     = can(cidrhost(var.allowed_ssh_cidr, 0))
-    error_message = "Must be a valid CIDR block."
+    error_message = "Must be a valid CIDR block (e.g., 203.0.113.0/24)."
+  }
+
+  validation {
+    condition     = var.allowed_ssh_cidr != "0.0.0.0/0"
+    error_message = "Cannot use 0.0.0.0/0 - specify your actual IP range for security. Use 'curl ifconfig.me' to find your IP."
+  }
+
+  validation {
+    condition     = !can(regex("^0\\.0\\.0\\.0/", var.allowed_ssh_cidr))
+    error_message = "Cannot use 0.0.0.0 as the base address - specify a specific IP or range."
   }
 }
 
 variable "allowed_api_cidr" {
-  description = "CIDR block allowed to access Kubernetes API"
+  description = "CIDR block allowed to access Kubernetes API (e.g., 203.0.113.0/24). Must specify your actual IP range for security."
   type        = string
-  default     = "0.0.0.0/0" # Change this to your IP for security
+  # NO DEFAULT - force user to specify
+
   validation {
     condition     = can(cidrhost(var.allowed_api_cidr, 0))
-    error_message = "Must be a valid CIDR block."
+    error_message = "Must be a valid CIDR block (e.g., 203.0.113.0/24)."
+  }
+
+  validation {
+    condition     = var.allowed_api_cidr != "0.0.0.0/0"
+    error_message = "Cannot use 0.0.0.0/0 - specify your actual IP range for security. Use 'curl ifconfig.me' to find your IP."
+  }
+
+  validation {
+    condition     = !can(regex("^0\\.0\\.0\\.0/", var.allowed_api_cidr))
+    error_message = "Cannot use 0.0.0.0 as the base address - specify a specific IP or range."
   }
 }
 
 variable "allowed_nodeport_cidr" {
-  description = "CIDR block allowed to access NodePort services"
+  description = "CIDR block allowed to access NodePort services (e.g., 203.0.113.0/24). Must specify your actual IP range for security."
   type        = string
-  default     = "0.0.0.0/0" # Can be restricted based on your needs
+  # NO DEFAULT - force user to specify
+
   validation {
     condition     = can(cidrhost(var.allowed_nodeport_cidr, 0))
-    error_message = "Must be a valid CIDR block."
+    error_message = "Must be a valid CIDR block (e.g., 203.0.113.0/24)."
+  }
+
+  validation {
+    condition     = var.allowed_nodeport_cidr != "0.0.0.0/0"
+    error_message = "Cannot use 0.0.0.0/0 - specify your actual IP range for security. Use 'curl ifconfig.me' to find your IP."
+  }
+
+  validation {
+    condition     = !can(regex("^0\\.0\\.0\\.0/", var.allowed_nodeport_cidr))
+    error_message = "Cannot use 0.0.0.0 as the base address - specify a specific IP or range."
   }
 }
 

@@ -3,9 +3,13 @@ Phase 7: Stress and Edge Case Tests
 
 Tests that verify behavior under high load, failures, and edge conditions.
 """
+import logging
 import pytest
 import time
 import subprocess
+from kubernetes.client.rest import ApiException
+
+logger = logging.getLogger(__name__)
 
 
 
@@ -377,5 +381,8 @@ class TestEdgeCases:
             # Cleanup
             try:
                 k8s_client["core"].delete_namespace(test_ns)
-            except:
-                pass
+            except ApiException as e:
+                if e.status != 404:  # Ignore if namespace doesn't exist
+                    logger.warning(f"Failed to cleanup test namespace {test_ns}: {e}")
+            except Exception as e:
+                logger.error(f"Unexpected error during namespace cleanup: {e}", exc_info=True)

@@ -101,6 +101,43 @@ repos:
         files: ^ansible/.*\.(yaml|yml)$
         args: [--exclude=ansible/roles/]
 
+  # Security: Python vulnerability scanning with Bandit
+  - repo: https://github.com/PyCQA/bandit
+    rev: 1.7.10
+    hooks:
+      - id: bandit
+        args: ['-c', 'pyproject.toml', '-r', 'tests/']
+        additional_dependencies: ['bandit[toml]']
+
+  # Security: Secrets detection
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.5.0
+    hooks:
+      - id: detect-secrets
+        args: ['--baseline', '.secrets.baseline']
+        exclude: package.lock.json
+
+  # Security: Terraform security scanning with tfsec
+  - repo: https://github.com/aquasecurity/tfsec
+    rev: v1.28.11
+    hooks:
+      - id: tfsec
+        name: tfsec
+        entry: tfsec
+        args:
+          - --minimum-severity=MEDIUM
+          - terraform/
+        language: golang
+        pass_filenames: false
+        types: [terraform]
+
+  # Dockerfile security: hadolint
+  - repo: https://github.com/hadolint/hadolint
+    rev: v2.12.0
+    hooks:
+      - id: hadolint-docker
+        args: ['--ignore', 'DL3008', '--ignore', 'DL3009']
+
 # CI-specific configuration
 ci:
   autofix_commit_msg: |
@@ -111,5 +148,5 @@ ci:
   autoupdate_branch: ''
   autoupdate_commit_msg: '[pre-commit.ci] pre-commit autoupdate'
   autoupdate_schedule: weekly
-  skip: [mypy, ansible-lint]  # Skip slow checks in CI
+  skip: [mypy, ansible-lint, tfsec, bandit]  # Skip slow checks in CI
   submodules: false

@@ -1,0 +1,88 @@
+---
+# Network Policy for HTTP Benchmark Traffic
+# Allows HTTP traffic between client and server for benchmarking
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-http-benchmark
+  namespace: http-benchmark
+  labels:
+    app: http-benchmark
+    policy: allow-http
+spec:
+  podSelector:
+    matchLabels:
+      app: http-server
+  policyTypes:
+  - Ingress
+  - Egress
+
+  # Allow ingress from http-client
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: http-client
+    ports:
+    - protocol: TCP
+      port: 80
+    - protocol: TCP
+      port: 8080
+
+  # Allow egress to http-server (for health checks)
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          app: http-server
+    ports:
+    - protocol: TCP
+      port: 80
+    - protocol: TCP
+      port: 8080
+
+  # Allow DNS resolution
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: kube-system
+    ports:
+    - protocol: UDP
+      port: 53
+---
+# Client policy - allow egress to server
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-http-client
+  namespace: http-benchmark
+  labels:
+    app: http-benchmark
+    policy: allow-client
+spec:
+  podSelector:
+    matchLabels:
+      app: http-client
+  policyTypes:
+  - Egress
+
+  # Allow egress to http-server
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          app: http-server
+    ports:
+    - protocol: TCP
+      port: 80
+    - protocol: TCP
+      port: 8080
+
+  # Allow DNS resolution
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: kube-system
+    ports:
+    - protocol: UDP
+      port: 53

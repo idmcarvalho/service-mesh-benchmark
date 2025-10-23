@@ -15,11 +15,14 @@ region = "us-ashburn-1"
 # SSH Configuration
 ssh_public_key_path = "~/.ssh/id_rsa.pub"
 
-# Security - IMPORTANT: Set these to your actual IP address for security
-# Get your IP from: curl ifconfig.me
-allowed_ssh_cidr      = "YOUR.IP.ADDRESS.HERE/32"  # Example: "203.0.113.1/32"
-allowed_api_cidr      = "YOUR.IP.ADDRESS.HERE/32"  # Example: "203.0.113.1/32"
-allowed_nodeport_cidr = "YOUR.IP.ADDRESS.HERE/32"  # Can be broader for testing
+# Security - CRITICAL: MUST set these to your actual IP address
+# Get your IP: curl ifconfig.me
+# SECURITY WARNING: These variables are now REQUIRED and cannot be 0.0.0.0/0
+# Single IP format: "203.0.113.42/32"
+# IP range format: "203.0.113.0/24"
+allowed_ssh_cidr      = "YOUR.IP.ADDRESS.HERE/32"  # REQUIRED - Cannot be 0.0.0.0/0
+allowed_api_cidr      = "YOUR.IP.ADDRESS.HERE/32"  # REQUIRED - Cannot be 0.0.0.0/0
+allowed_nodeport_cidr = "YOUR.IP.ADDRESS.HERE/32"  # REQUIRED - Cannot be 0.0.0.0/0
 
 # Instance Configuration (Free Tier: VM.Standard.A1.Flex)
 instance_shape     = "VM.Standard.A1.Flex"

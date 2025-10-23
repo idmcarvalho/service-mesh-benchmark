@@ -37,9 +37,17 @@ class TestConfig(BaseModel):
     kubeconfig: Path = Field(
         default=Path.home() / ".kube" / "config", description="Path to kubeconfig file"
     )
-    test_duration: int = Field(default=60, gt=0, description="Test duration in seconds")
+    test_duration: int = Field(
+        default=60,
+        gt=0,
+        le=3600,
+        description="Test duration in seconds (1-3600)"
+    )
     concurrent_connections: int = Field(
-        default=100, gt=0, description="Number of concurrent connections"
+        default=100,
+        gt=0,
+        le=10000,
+        description="Number of concurrent connections (1-10000)"
     )
     project_root: Path = Field(description="Project root directory")
     terraform_dir: Path = Field(description="Terraform directory")
@@ -53,6 +61,26 @@ class TestConfig(BaseModel):
         """Expand ~ in paths."""
         if isinstance(v, str):
             return Path(v).expanduser()
+        return v
+
+    @field_validator("test_duration")
+    @classmethod
+    def validate_test_duration(cls, v: int) -> int:
+        """Validate test duration is within reasonable bounds."""
+        if v < 1:
+            raise ValueError("test_duration must be at least 1 second")
+        if v > 3600:
+            raise ValueError("test_duration must not exceed 3600 seconds (1 hour)")
+        return v
+
+    @field_validator("concurrent_connections")
+    @classmethod
+    def validate_concurrent_connections(cls, v: int) -> int:
+        """Validate concurrent connections is within reasonable bounds."""
+        if v < 1:
+            raise ValueError("concurrent_connections must be at least 1")
+        if v > 10000:
+            raise ValueError("concurrent_connections must not exceed 10000")
         return v
 
     class Config:

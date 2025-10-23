@@ -90,15 +90,37 @@ spec:
         app: health-check
         version: v1
     spec:
+      # Pod-level security context
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: health-check
         # Use pre-built image with pinned dependencies
         # Build with: docker build -t health-check:v1.0.0 -f docker/health-check/Dockerfile docker/health-check/
         image: health-check:v1.0.0
         imagePullPolicy: IfNotPresent
+        # Container-level security context
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 1000
+          capabilities:
+            drop:
+              - ALL
         ports:
         - containerPort: 8080
           name: http
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+        - name: cache
+          mountPath: /app/cache
         resources:
           requests:
             cpu: 50m
@@ -118,6 +140,11 @@ spec:
             port: 8080
           initialDelaySeconds: 20
           periodSeconds: 5
+      volumes:
+      - name: tmp
+        emptyDir: {}
+      - name: cache
+        emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
