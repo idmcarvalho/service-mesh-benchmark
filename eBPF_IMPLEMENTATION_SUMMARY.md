@@ -308,7 +308,7 @@ All documentation is in `ebpf-probes/`:
 
 ## 🏆 Achievement Unlocked
 
-**You now have**:
+**Now we have**:
 - A production-ready eBPF latency probe
 - Kernel-level network monitoring capabilities
 - The ability to measure service mesh overhead accurately
@@ -317,18 +317,8 @@ All documentation is in `ebpf-probes/`:
 
 **This differentiates the project** because most service mesh benchmarks rely solely on application-level or sidecar metrics. You can now provide kernel-level ground truth!
 
----
-
-**Status**: ✅ Ready for production use, trust me
-**Maintained by**: "Sam Sepiol"
-**Implementation**: Claudinho vibecode deu uma boa força
-
----
-
 ## 🙏 Acknowledgments
 
 - Aya-rs team for excellent eBPF framework
 - Linux kernel eBPF developers
 - Rust community
-- Claude AI for implementation assistance and vibecoding
-- Sam Sepiol the mastermind behind this project
