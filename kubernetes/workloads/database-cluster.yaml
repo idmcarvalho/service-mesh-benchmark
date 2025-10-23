@@ -35,9 +35,27 @@ spec:
         app: redis
         version: v1
     spec:
+      # Pod-level security context
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999  # redis user
+        runAsGroup: 999
+        fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+
       containers:
       - name: redis
         image: redis:7-alpine
+        # Container-level security context
+        # Note: readOnlyRootFilesystem=false because redis needs to write
+        securityContext:
+          allowPrivilegeEscalation: false
+          runAsNonRoot: true
+          runAsUser: 999
+          capabilities:
+            drop:
+              - ALL
         ports:
         - containerPort: 6379
           name: redis
@@ -48,6 +66,8 @@ spec:
           mountPath: /etc/redis
         - name: redis-data
           mountPath: /data
+        - name: tmp
+          mountPath: /tmp
         resources:
           requests:
             cpu: 100m
@@ -71,6 +91,8 @@ spec:
       - name: redis-config
         configMap:
           name: redis-config
+      - name: tmp
+        emptyDir: {}
   volumeClaimTemplates:
   - metadata:
       name: redis-data

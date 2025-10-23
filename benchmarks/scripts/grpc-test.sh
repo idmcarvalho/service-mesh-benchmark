@@ -1,5 +1,6 @@
 #!/bin/bash
-set -e
+# shellcheck shell=bash
+set -euo pipefail
 
 # gRPC Load Testing Script using ghz
 
@@ -16,25 +17,36 @@ WARMUP_DURATION="${WARMUP_DURATION:-10}"
 COOLDOWN_DURATION="${COOLDOWN_DURATION:-5}"
 MESH_TYPE="${MESH_TYPE:-baseline}"
 
+# SECURITY: TLS configuration
+# Set ALLOW_INSECURE_GRPC=true ONLY in isolated test environments
+# For production, always use proper TLS certificates
+ALLOW_INSECURE_GRPC="${ALLOW_INSECURE_GRPC:-false}"
+
+# Validate inputs
+if [[ ! "${NAMESPACE}" =~ ^[a-z0-9-]+$ ]]; then
+    echo "Error: Invalid namespace format" >&2
+    exit 1
+fi
+
 # Create results directory
-mkdir -p "$RESULTS_DIR"
+mkdir -p "${RESULTS_DIR}"
 
 # Get timestamp
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-OUTPUT_FILE="$RESULTS_DIR/grpc_test_${TIMESTAMP}.json"
+OUTPUT_FILE="${RESULTS_DIR}/grpc_test_${TIMESTAMP}.json"
 
-echo "Testing gRPC service: $SERVICE_URL"
-echo "Namespace: $NAMESPACE"
-echo "Mesh Type: $MESH_TYPE"
-echo "Duration: $TEST_DURATION"
-echo "Concurrent connections: $CONCURRENT_CONNECTIONS"
-echo "Total requests: $TOTAL_REQUESTS"
+echo "Testing gRPC service: ${SERVICE_URL}"
+echo "Namespace: ${NAMESPACE}"
+echo "Mesh Type: ${MESH_TYPE}"
+echo "Duration: ${TEST_DURATION}"
+echo "Concurrent connections: ${CONCURRENT_CONNECTIONS}"
+echo "Total requests: ${TOTAL_REQUESTS}"
 echo "Warm-up: ${WARMUP_DURATION}s, Cool-down: ${COOLDOWN_DURATION}s"
 echo ""
 
 # Health check - wait for pods to be ready
 echo "Checking pod readiness..."
-if ! kubectl wait --for=condition=ready pod -l app=grpc-server -n "$NAMESPACE" --timeout=300s 2>/dev/null; then
+if ! kubectl wait --for=condition=ready pod -l app=grpc-server -n "${NAMESPACE}" --timeout=300s 2>/dev/null; then
     echo "Warning: Pods may not be ready, but continuing anyway..."
 fi
 
@@ -63,15 +75,50 @@ fi
 
 # Run ghz benchmark for list method
 echo "Running ghz benchmark..."
-ghz --insecure \
-    --proto=/dev/null \
-    --call=grpc.health.v1.Health/Check \
-    --duration=$TEST_DURATION \
-    --connections=$CONCURRENT_CONNECTIONS \
-    --concurrency=$CONCURRENT_CONNECTIONS \
-    --format=json \
-    --output="$OUTPUT_FILE" \
-    "$SERVICE_URL" || echo "ghz test completed with errors (expected if service doesn't implement health check)"
+
+# SECURITY CHECK: Warn if using insecure mode
+if [[ "${ALLOW_INSECURE_GRPC}" == "true" ]]; then
+    echo "⚠️  WARNING: Running gRPC tests in INSECURE mode (TLS disabled)" >&2
+    echo "⚠️  This should ONLY be used in isolated test environments" >&2
+    echo "⚠️  For production, configure proper TLS certificates" >&2
+
+    ghz --insecure \
+        --proto=/dev/null \
+        --call=grpc.health.v1.Health/Check \
+        --duration="${TEST_DURATION}" \
+        --connections="${CONCURRENT_CONNECTIONS}" \
+        --concurrency="${CONCURRENT_CONNECTIONS}" \
+        --format=json \
+        --output="${OUTPUT_FILE}" \
+        "${SERVICE_URL}" || echo "ghz test completed with errors (expected if service doesn't implement health check)"
+else
+    # Secure mode: use TLS (requires certificates)
+    echo "Running in SECURE mode with TLS verification"
+
+    # Check if TLS certificates are available
+    if [[ -f "${GRPC_CA_CERT:-}" ]] && [[ -f "${GRPC_CLIENT_CERT:-}" ]] && [[ -f "${GRPC_CLIENT_KEY:-}" ]]; then
+        ghz \
+            --cacert="${GRPC_CA_CERT}" \
+            --cert="${GRPC_CLIENT_CERT}" \
+            --key="${GRPC_CLIENT_KEY}" \
+            --proto=/dev/null \
+            --call=grpc.health.v1.Health/Check \
+            --duration="${TEST_DURATION}" \
+            --connections="${CONCURRENT_CONNECTIONS}" \
+            --concurrency="${CONCURRENT_CONNECTIONS}" \
+            --format=json \
+            --output="${OUTPUT_FILE}" \
+            "${SERVICE_URL}" || echo "ghz test completed with errors"
+    else
+        echo "ERROR: TLS certificates not found!" >&2
+        echo "Either set ALLOW_INSECURE_GRPC=true for test environments," >&2
+        echo "or provide certificates via:" >&2
+        echo "  GRPC_CA_CERT=/path/to/ca.crt" >&2
+        echo "  GRPC_CLIENT_CERT=/path/to/client.crt" >&2
+        echo "  GRPC_CLIENT_KEY=/path/to/client.key" >&2
+        exit 1
+    fi
+fi
 
 # Fallback: use grpcurl for basic testing
 echo "Running grpcurl tests..."

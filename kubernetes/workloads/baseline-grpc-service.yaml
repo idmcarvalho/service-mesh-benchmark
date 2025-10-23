@@ -27,14 +27,35 @@ spec:
         app: baseline-grpc-server
         version: v1
     spec:
+      # Pod-level security context
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+
       containers:
       - name: grpcbin
         image: moul/grpcbin:latest
+        # Container-level security context
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 1000
+          capabilities:
+            drop:
+              - ALL
         ports:
         - containerPort: 9000
           name: grpc
         - containerPort: 9001
           name: grpc-web
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
         resources:
           requests:
             cpu: 100m
@@ -52,6 +73,10 @@ spec:
             port: 9000
           initialDelaySeconds: 5
           periodSeconds: 3
+
+      volumes:
+      - name: tmp
+        emptyDir: {}
 ---
 apiVersion: v1
 kind: Service

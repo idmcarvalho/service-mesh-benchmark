@@ -26,14 +26,35 @@ spec:
         app: grpc-server
         version: v1
     spec:
+      # Pod-level security context
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+
       containers:
       - name: grpc-server
         image: moul/grpcbin:latest
+        # Container-level security context
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 1000
+          capabilities:
+            drop:
+              - ALL
         ports:
         - containerPort: 9000
           name: grpc
         - containerPort: 9001
           name: grpc-web
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
         resources:
           requests:
             cpu: 100m
@@ -51,6 +72,10 @@ spec:
             port: 9000
           initialDelaySeconds: 5
           periodSeconds: 5
+
+      volumes:
+      - name: tmp
+        emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
@@ -91,9 +116,27 @@ spec:
         app: grpc-client
         version: v1
     spec:
+      # Pod-level security context
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+
       containers:
       - name: grpc-client
         image: fullstorydev/grpcurl:latest
+        # Container-level security context
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 1000
+          capabilities:
+            drop:
+              - ALL
         command: ["/bin/sh"]
         args:
           - -c
@@ -102,6 +145,9 @@ spec:
               grpcurl -plaintext grpc-server.grpc-benchmark.svc.cluster.local:9000 list || true
               sleep 2
             done
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
         resources:
           requests:
             cpu: 50m
@@ -109,6 +155,10 @@ spec:
           limits:
             cpu: 200m
             memory: 128Mi
+
+      volumes:
+      - name: tmp
+        emptyDir: {}
 ---
 apiVersion: v1
 kind: Service

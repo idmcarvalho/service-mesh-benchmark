@@ -24,15 +24,36 @@ spec:
         app: websocket-server
         version: v1
     spec:
+      # Pod-level security context
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+
       containers:
       - name: websocket-echo
         image: jmalloc/echo-server:latest
+        # Container-level security context
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 1000
+          capabilities:
+            drop:
+              - ALL
         ports:
         - containerPort: 8080
           name: http
         env:
         - name: PORT
           value: "8080"
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
         resources:
           requests:
             cpu: 100m
@@ -40,6 +61,10 @@ spec:
           limits:
             cpu: 500m
             memory: 256Mi
+
+      volumes:
+      - name: tmp
+        emptyDir: {}
 ---
 apiVersion: v1
 kind: Service

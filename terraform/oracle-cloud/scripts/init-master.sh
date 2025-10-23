@@ -83,33 +83,55 @@ sudo cp -i /etc/kubernetes/admin.conf /root/.kube/config
 kubeadm token create --print-join-command | sudo tee /home/ubuntu/join-command.sh
 sudo chmod +x /home/ubuntu/join-command.sh
 
-# Install Helm securely with checksum verification
+# Install Helm securely with direct binary download and checksum verification
 HELM_VERSION="v3.14.0"
-HELM_INSTALL_SCRIPT="/tmp/get-helm-${HELM_VERSION}.sh"
-HELM_CHECKSUM="a8ddb4e30435b5fd45308ecce5eaad676d64a5de9c89660b56bebcc8bdf731b6"
+HELM_ARCH="linux-amd64"
+HELM_TARBALL="helm-${HELM_VERSION}-${HELM_ARCH}.tar.gz"
+HELM_URL="https://get.helm.sh/${HELM_TARBALL}"
+# Official SHA256 checksum from https://github.com/helm/helm/releases/tag/v3.14.0
+HELM_CHECKSUM="f43e1c3387de24547506ab05d24e5309c0ce0b228c23bd8aa64e9ec4b8206651"
 
 echo "Installing Helm ${HELM_VERSION}..."
-curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 -o "${HELM_INSTALL_SCRIPT}"
 
-# Verify checksum
-echo "${HELM_CHECKSUM}  ${HELM_INSTALL_SCRIPT}" | sha256sum -c - || {
-    echo "ERROR: Helm installer checksum verification failed!" >&2
-    rm -f "${HELM_INSTALL_SCRIPT}"
+# Download Helm binary tarball
+curl -fsSL "${HELM_URL}" -o "/tmp/${HELM_TARBALL}"
+
+# Verify checksum of the actual Helm binary
+echo "${HELM_CHECKSUM}  /tmp/${HELM_TARBALL}" | sha256sum -c - || {
+    echo "ERROR: Helm binary checksum verification failed!" >&2
+    echo "Expected: ${HELM_CHECKSUM}" >&2
+    echo "Got: $(sha256sum /tmp/${HELM_TARBALL} | awk '{print $1}')" >&2
+    rm -f "/tmp/${HELM_TARBALL}"
     exit 1
 }
 
-# Execute with restricted permissions
-chmod 700 "${HELM_INSTALL_SCRIPT}"
-"${HELM_INSTALL_SCRIPT}" --version "${HELM_VERSION}"
+# Extract and install
+tar -xzf "/tmp/${HELM_TARBALL}" -C /tmp/
+sudo mv "/tmp/${HELM_ARCH}/helm" /usr/local/bin/helm
+sudo chmod +x /usr/local/bin/helm
+
+# Verify installation
+helm version --short
 
 # Cleanup
-rm -f "${HELM_INSTALL_SCRIPT}"
+rm -rf "/tmp/${HELM_TARBALL}" "/tmp/${HELM_ARCH}"
+
+echo "Helm ${HELM_VERSION} installed successfully with verified checksum"
 
 # Install metrics-server
 kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
 
-# Patch metrics-server for self-signed certs
-kubectl patch deployment metrics-server -n kube-system --type='json' -p='[{"op": "add", "path": "/spec/template/spec/containers/0/args/-", "value": "--kubelet-insecure-tls"}]'
+# SECURITY: Use hostNetwork instead of disabling TLS verification
+# This is more secure than --kubelet-insecure-tls for test environments
+kubectl patch deployment metrics-server -n kube-system --type='json' -p='[
+  {"op": "add", "path": "/spec/template/spec/hostNetwork", "value": true},
+  {"op": "add", "path": "/spec/template/spec/containers/0/args/-", "value": "--kubelet-preferred-address-types=InternalIP,ExternalIP,Hostname"}
+]'
+
+# Note: For production, configure proper certificates:
+# 1. Generate CA and certificates for kubelet
+# 2. Configure kubelet with --client-ca-file
+# 3. Remove hostNetwork and use proper TLS
 
 # Install CNI plugin (Calico)
 kubectl create -f https://raw.githubusercontent.com/projectcalico/calico/v3.26.1/manifests/tigera-operator.yaml
