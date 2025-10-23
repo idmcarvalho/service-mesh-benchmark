@@ -1,12 +1,5 @@
 # eBPF Latency Probe - Implementation Summary
 
-**Date**: October 20, 2025
-**Status**: ✅ **COMPLETE - Production Ready**
-
----
-
-## 🎉 What Was Accomplished
-
 ### Full eBPF Latency Tracking System
 
 A **complete, production-ready eBPF probe** for measuring TCP latency at the kernel level, specifically designed for service mesh benchmarking.
@@ -322,13 +315,13 @@ All documentation is in `ebpf-probes/`:
 - A showcase of cutting-edge eBPF technology
 - Comprehensive documentation for future development
 
-**This differentiates your project** because most service mesh benchmarks rely solely on application-level or sidecar metrics. You can now provide kernel-level ground truth!
+**This differentiates the project** because most service mesh benchmarks rely solely on application-level or sidecar metrics. You can now provide kernel-level ground truth!
 
 ---
 
-**Status**: ✅ Ready for production use
-**Maintained by**: Sam
-**Implementation**: AI-assisted (October 2025)
+**Status**: ✅ Ready for production use, trust me
+**Maintained by**: "Sam Sepiol"
+**Implementation**: Claudinho vibecode deu uma boa força
 
 ---
 
@@ -337,4 +330,5 @@ All documentation is in `ebpf-probes/`:
 - Aya-rs team for excellent eBPF framework
 - Linux kernel eBPF developers
 - Rust community
-- Claude AI for implementation assistance
+- Claude AI for implementation assistance and vibecoding
+- Sam Sepiol the mastermind behind this project

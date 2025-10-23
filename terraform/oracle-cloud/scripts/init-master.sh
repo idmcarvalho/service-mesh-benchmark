@@ -83,8 +83,27 @@ sudo cp -i /etc/kubernetes/admin.conf /root/.kube/config
 kubeadm token create --print-join-command | sudo tee /home/ubuntu/join-command.sh
 sudo chmod +x /home/ubuntu/join-command.sh
 
-# Install Helm
-curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+# Install Helm securely with checksum verification
+HELM_VERSION="v3.14.0"
+HELM_INSTALL_SCRIPT="/tmp/get-helm-${HELM_VERSION}.sh"
+HELM_CHECKSUM="a8ddb4e30435b5fd45308ecce5eaad676d64a5de9c89660b56bebcc8bdf731b6"
+
+echo "Installing Helm ${HELM_VERSION}..."
+curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 -o "${HELM_INSTALL_SCRIPT}"
+
+# Verify checksum
+echo "${HELM_CHECKSUM}  ${HELM_INSTALL_SCRIPT}" | sha256sum -c - || {
+    echo "ERROR: Helm installer checksum verification failed!" >&2
+    rm -f "${HELM_INSTALL_SCRIPT}"
+    exit 1
+}
+
+# Execute with restricted permissions
+chmod 700 "${HELM_INSTALL_SCRIPT}"
+"${HELM_INSTALL_SCRIPT}" --version "${HELM_VERSION}"
+
+# Cleanup
+rm -f "${HELM_INSTALL_SCRIPT}"
 
 # Install metrics-server
 kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml

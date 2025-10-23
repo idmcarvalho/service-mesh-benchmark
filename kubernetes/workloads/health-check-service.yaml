@@ -92,19 +92,13 @@ spec:
     spec:
       containers:
       - name: health-check
-        image: python:3.11-slim
-        command: ["/bin/sh"]
-        args:
-          - -c
-          - |
-            pip install flask psutil && \
-            python /app/app.py
+        # Use pre-built image with pinned dependencies
+        # Build with: docker build -t health-check:v1.0.0 -f docker/health-check/Dockerfile docker/health-check/
+        image: health-check:v1.0.0
+        imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 8080
           name: http
-        volumeMounts:
-        - name: app
-          mountPath: /app
         resources:
           requests:
             cpu: 50m
@@ -124,10 +118,6 @@ spec:
             port: 8080
           initialDelaySeconds: 20
           periodSeconds: 5
-      volumes:
-      - name: app
-        configMap:
-          name: health-check-app
 ---
 apiVersion: v1
 kind: Service

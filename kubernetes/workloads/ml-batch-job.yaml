@@ -23,33 +23,32 @@ spec:
         version: v1
     spec:
       restartPolicy: OnFailure
+      # Pod-level security context
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: ml-worker
-        image: python:3.9-slim
-        command: ["/bin/bash"]
-        args:
-          - -c
-          - |
-            pip install numpy scikit-learn pandas
-            python3 << 'EOF'
-            import numpy as np
-            from sklearn.ensemble import RandomForestClassifier
-            import time
-
-            print("Starting ML training job...")
-            # Generate synthetic dataset
-            X = np.random.rand(10000, 20)
-            y = np.random.randint(0, 2, 10000)
-
-            # Train model
-            model = RandomForestClassifier(n_estimators=100)
-            start_time = time.time()
-            model.fit(X, y)
-            duration = time.time() - start_time
-
-            print(f"Training completed in {duration:.2f} seconds")
-            print(f"Model score: {model.score(X, y):.4f}")
-            EOF
+        # Use pre-built image with pinned dependencies
+        # Build with: docker build -t ml-workload:v1.0.0 -f docker/ml-workload/Dockerfile docker/ml-workload/
+        image: ml-workload:v1.0.0
+        imagePullPolicy: IfNotPresent
+        # Container-level security context
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 1000
+          capabilities:
+            drop:
+              - ALL
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
         resources:
           requests:
             cpu: 500m
@@ -57,6 +56,9 @@ spec:
           limits:
             cpu: 1000m
             memory: 1Gi
+      volumes:
+      - name: tmp
+        emptyDir: {}
 ---
 apiVersion: batch/v1
 kind: CronJob
@@ -75,24 +77,32 @@ spec:
             app: ml-inference
         spec:
           restartPolicy: OnFailure
+          # Pod-level security context
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
           containers:
           - name: inference
-            image: python:3.9-slim
-            command: ["/bin/bash"]
-            args:
-              - -c
-              - |
-                pip install numpy
-                python3 << 'EOF'
-                import numpy as np
-                import time
-
-                print("Running inference...")
-                data = np.random.rand(1000, 20)
-                # Simulate inference
-                time.sleep(5)
-                print("Inference completed")
-                EOF
+            # Use pre-built image with pinned dependencies
+            # Build with: docker build -t ml-inference:v1.0.0 -f docker/ml-workload/Dockerfile.inference docker/ml-workload/
+            image: ml-inference:v1.0.0
+            imagePullPolicy: IfNotPresent
+            # Container-level security context
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              runAsNonRoot: true
+              runAsUser: 1000
+              capabilities:
+                drop:
+                  - ALL
+            volumeMounts:
+            - name: tmp
+              mountPath: /tmp
             resources:
               requests:
                 cpu: 200m
@@ -100,3 +110,6 @@ spec:
               limits:
                 cpu: 500m
                 memory: 512Mi
+          volumes:
+          - name: tmp
+            emptyDir: {}

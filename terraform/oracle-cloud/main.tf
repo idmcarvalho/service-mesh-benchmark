@@ -69,10 +69,60 @@ resource "oci_core_security_list" "benchmark_sl" {
   vcn_id         = oci_core_vcn.benchmark_vcn.id
   display_name   = "benchmark-security-list"
   
-  # Egress - Allow all
+  # Egress - Restricted to necessary protocols only
+  # HTTPS for package repositories and APIs
   egress_security_rules {
+    description = "HTTPS to package repositories"
     destination = "0.0.0.0/0"
-    protocol    = "all"
+    protocol    = "6" # TCP
+
+    tcp_options {
+      min = 443
+      max = 443
+    }
+  }
+
+  # HTTP for package repositories (some repos still use HTTP)
+  egress_security_rules {
+    description = "HTTP for package repositories"
+    destination = "0.0.0.0/0"
+    protocol    = "6" # TCP
+
+    tcp_options {
+      min = 80
+      max = 80
+    }
+  }
+
+  # DNS
+  egress_security_rules {
+    description = "DNS queries"
+    destination = "0.0.0.0/0"
+    protocol    = "17" # UDP
+
+    udp_options {
+      min = 53
+      max = 53
+    }
+  }
+
+  # NTP for time synchronization
+  egress_security_rules {
+    description = "NTP time sync"
+    destination = "0.0.0.0/0"
+    protocol    = "17" # UDP
+
+    udp_options {
+      min = 123
+      max = 123
+    }
+  }
+
+  # ICMP for network diagnostics
+  egress_security_rules {
+    description = "ICMP for ping/traceroute"
+    destination = "0.0.0.0/0"
+    protocol    = "1" # ICMP
   }
   
   # Ingress - SSH (Restrict to your IP - set via variable)
