@@ -1,0 +1,272 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME_API: ${{ github.repository }}/api
+  IMAGE_NAME_ML: ${{ github.repository }}/ml-workload
+  IMAGE_NAME_HEALTH: ${{ github.repository }}/health-check
+
+jobs:
+  # Job 1: Code Quality and Testing
+  quality-and-tests:
+    name: Code Quality & Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r tests/requirements.txt
+          pip install -r api/requirements.txt
+
+      - name: Run Ruff linter
+        run: |
+          pip install ruff
+          ruff check .
+        continue-on-error: true
+
+      - name: Run Black formatter check
+        run: |
+          pip install black
+          black --check .
+        continue-on-error: true
+
+      - name: Run MyPy type checker
+        run: |
+          pip install mypy types-PyYAML
+          mypy api/ tests/ --config-file=pyproject.toml
+        continue-on-error: true
+
+      - name: Run pre-deployment tests (Phase 1)
+        run: |
+          cd tests
+          pytest -v -m phase1 --tb=short
+
+      - name: Run unit tests with coverage
+        run: |
+          pip install pytest-cov
+          pytest tests/ --cov=api --cov=tests --cov-report=xml --cov-report=html
+        continue-on-error: true
+
+      - name: Upload coverage reports
+        uses: codecov/codecov-action@v4
+        with:
+          file: ./coverage.xml
+          flags: unittests
+          name: codecov-umbrella
+        if: always()
+
+  # Job 2: Build Docker Images
+  build-images:
+    name: Build Docker Images
+    runs-on: ubuntu-latest
+    needs: quality-and-tests
+    if: github.event_name == 'push'
+
+    permissions:
+      contents: read
+      packages: write
+
+    strategy:
+      matrix:
+        image:
+          - name: api
+            dockerfile: docker/api/Dockerfile
+            context: .
+          - name: ml-workload
+            dockerfile: docker/ml-workload/Dockerfile
+            context: docker/ml-workload
+          - name: health-check
+            dockerfile: docker/health-check/Dockerfile
+            context: docker/health-check
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository }}/${{ matrix.image.name }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ matrix.image.context }}
+          file: ${{ matrix.image.dockerfile }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ github.repository }}/${{ matrix.image.name }}:buildcache
+          cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ github.repository }}/${{ matrix.image.name }}:buildcache,mode=max
+          platforms: linux/amd64,linux/arm64
+
+  # Job 3: Security Scanning
+  security-scan:
+    name: Security Scanning
+    runs-on: ubuntu-latest
+    needs: build-images
+    if: github.event_name == 'push'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+
+      - name: Upload Trivy results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+  # Job 4: Deploy to Staging (on push to develop)
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: [build-images, security-scan]
+    if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
+    environment:
+      name: staging
+      url: https://staging.benchmark.example.com
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure kubectl
+        uses: azure/k8s-set-context@v4
+        with:
+          method: kubeconfig
+          kubeconfig: ${{ secrets.KUBECONFIG_STAGING }}
+
+      - name: Deploy PostgreSQL
+        run: |
+          kubectl apply -f kubernetes/database/postgres-statefulset.yaml
+          kubectl rollout status statefulset/postgres -n benchmark-system --timeout=5m
+
+      - name: Deploy API
+        run: |
+          kubectl set image deployment/benchmark-api \
+            api=${{ env.REGISTRY }}/${{ github.repository }}/api:develop \
+            -n benchmark-system
+          kubectl rollout status deployment/benchmark-api -n benchmark-system --timeout=5m
+
+      - name: Run smoke tests
+        run: |
+          API_URL="http://$(kubectl get svc benchmark-api -n benchmark-system -o jsonpath='{.status.loadBalancer.ingress[0].ip}')"
+          curl -f $API_URL/health || exit 1
+
+  # Job 5: Deploy to Production (on push to main)
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: [build-images, security-scan]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    environment:
+      name: production
+      url: https://benchmark.example.com
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure kubectl
+        uses: azure/k8s-set-context@v4
+        with:
+          method: kubeconfig
+          kubeconfig: ${{ secrets.KUBECONFIG_PRODUCTION }}
+
+      - name: Create database backup
+        run: |
+          kubectl exec -n benchmark-system postgres-0 -- \
+            pg_dump -U benchmark service_mesh_benchmark | \
+            oci os object put --bucket-name benchmark-backups --name backup-$(date +%Y%m%d-%H%M%S).sql
+        continue-on-error: true
+
+      - name: Deploy PostgreSQL
+        run: |
+          kubectl apply -f kubernetes/database/postgres-statefulset.yaml
+          kubectl rollout status statefulset/postgres -n benchmark-system --timeout=5m
+
+      - name: Run database migrations
+        run: |
+          kubectl run alembic-migrate --rm -it --restart=Never \
+            --image=${{ env.REGISTRY }}/${{ github.repository }}/api:latest \
+            --env="DATABASE_URL=${{ secrets.DATABASE_URL }}" \
+            -- alembic upgrade head
+
+      - name: Deploy API with rolling update
+        run: |
+          kubectl set image deployment/benchmark-api \
+            api=${{ env.REGISTRY }}/${{ github.repository }}/api:latest \
+            -n benchmark-system
+          kubectl rollout status deployment/benchmark-api -n benchmark-system --timeout=10m
+
+      - name: Run smoke tests
+        run: |
+          API_URL="http://$(kubectl get svc benchmark-api -n benchmark-system -o jsonpath='{.status.loadBalancer.ingress[0].ip}')"
+          curl -f $API_URL/health || exit 1
+          curl -f $API_URL/health/kubernetes || exit 1
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "Deployment to production failed! Rolling back..."
+          kubectl rollout undo deployment/benchmark-api -n benchmark-system
+
+  # Job 6: Cleanup old images
+  cleanup:
+    name: Cleanup Old Images
+    runs-on: ubuntu-latest
+    needs: [deploy-production]
+    if: always()
+
+    steps:
+      - name: Delete old container images
+        uses: snok/container-retention-policy@v2
+        with:
+          image-names: api,ml-workload,health-check
+          cut-off: 7 days ago UTC
+          keep-at-least: 5
+          account-type: org
+          token: ${{ secrets.GITHUB_TOKEN }}
