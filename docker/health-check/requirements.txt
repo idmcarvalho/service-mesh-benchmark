@@ -1,5 +1,0 @@
-# Pinned dependencies for health-check service
-# Updated: 2025-10-21
-flask==3.0.3
-psutil==5.9.8
-werkzeug==3.0.3

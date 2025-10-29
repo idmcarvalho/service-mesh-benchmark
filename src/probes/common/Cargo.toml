@@ -1,0 +1,14 @@
+[package]
+name = "probe-common"
+version = "0.2.0"
+edition = "2021"
+license = "MIT"
+description = "Shared types and utilities for eBPF probes"
+
+[lib]
+name = "probe_common"
+path = "src/lib.rs"
+
+[dependencies]
+# No dependencies needed for shared types
+# This crate should be minimal and dependency-free

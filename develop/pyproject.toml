@@ -112,13 +112,13 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"src/tests/*.py" = [
+"tests/*.py" = [
     "D",       # Don't require docstrings in tests
     "ANN",     # Don't require type annotations in tests
     "S",       # Don't check security in tests
     "PLR2004", # Magic values are OK in tests
 ]
-"src/tests/conftest.py" = [
+"tests/conftest.py" = [
     "F401",    # Unused imports OK in conftest
 ]
 
@@ -126,7 +126,7 @@ ignore = [
 convention = "google"
 
 [tool.ruff.lint.isort]
-known-first-party = ["src"]
+known-first-party = ["tests"]
 
 # ===========================
 # Black Configuration
@@ -175,7 +175,7 @@ pretty = true
 
 # Per-module options
 [[tool.mypy.overrides]]
-module = "src.tests.*"
+module = "tests.*"
 disallow_untyped_defs = false
 disallow_untyped_calls = false
 disallow_incomplete_defs = false
@@ -192,7 +192,7 @@ ignore_missing_imports = true
 # ===========================
 [tool.pytest.ini_options]
 minversion = "8.0"
-testpaths = ["src/tests"]
+testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]

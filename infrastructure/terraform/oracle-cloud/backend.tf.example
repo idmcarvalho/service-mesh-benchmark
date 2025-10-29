@@ -1,0 +1,155 @@
+# Terraform Remote Backend Configuration Example
+#
+# This file shows how to configure remote state storage for team collaboration
+# and improved state management. Rename this file to `backend.tf` after configuration.
+
+# Option 1: OCI Object Storage (Recommended for OCI deployments)
+# Prerequisites:
+# 1. Create an Object Storage bucket in your OCI compartment
+# 2. Generate an API key pair for authentication
+# 3. Configure OCI credentials
+
+terraform {
+  backend "s3" {
+    # OCI Object Storage is S3-compatible
+    bucket   = "terraform-state-bucket"           # Your bucket name
+    key      = "service-mesh-benchmark/terraform.tfstate"
+    region   = "us-ashburn-1"                     # Your OCI region
+    endpoint = "https://NAMESPACE.compat.objectstorage.us-ashburn-1.oraclecloud.com"
+
+    # OCI credentials
+    # Set these via environment variables:
+    # export AWS_ACCESS_KEY_ID=<your-oci-customer-secret-key-access-key>
+    # export AWS_SECRET_ACCESS_KEY=<your-oci-customer-secret-key-secret>
+
+    skip_region_validation      = true
+    skip_credentials_validation = true
+    skip_metadata_api_check     = true
+    force_path_style            = true
+  }
+}
+
+# To get your OCI Object Storage namespace:
+# oci os ns get
+
+# To create a bucket:
+# oci os bucket create \
+#   --compartment-id <compartment-ocid> \
+#   --name terraform-state-bucket
+
+# To generate customer secret keys (S3-compatible credentials):
+# oci iam customer-secret-key create \
+#   --user-id <user-ocid> \
+#   --display-name "Terraform State Access"
+
+
+# Option 2: HashiCorp Terraform Cloud (Free tier available)
+# Provides state locking, versioning, and team collaboration features
+
+# terraform {
+#   cloud {
+#     organization = "your-org-name"
+#
+#     workspaces {
+#       name = "service-mesh-benchmark"
+#     }
+#   }
+# }
+
+# To setup Terraform Cloud:
+# 1. Create account at https://app.terraform.io/signup
+# 2. Create organization
+# 3. Run: terraform login
+# 4. Uncomment the block above
+
+
+# Option 3: AWS S3 (If you have AWS infrastructure)
+
+# terraform {
+#   backend "s3" {
+#     bucket         = "your-terraform-state-bucket"
+#     key            = "service-mesh-benchmark/terraform.tfstate"
+#     region         = "us-east-1"
+#     encrypt        = true
+#     dynamodb_table = "terraform-state-locks"  # For state locking
+#   }
+# }
+
+# To create S3 bucket with versioning and encryption:
+# aws s3api create-bucket \
+#   --bucket your-terraform-state-bucket \
+#   --region us-east-1
+#
+# aws s3api put-bucket-versioning \
+#   --bucket your-terraform-state-bucket \
+#   --versioning-configuration Status=Enabled
+#
+# aws s3api put-bucket-encryption \
+#   --bucket your-terraform-state-bucket \
+#   --server-side-encryption-configuration \
+#   '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"}}]}'
+
+# To create DynamoDB table for state locking:
+# aws dynamodb create-table \
+#   --table-name terraform-state-locks \
+#   --attribute-definitions AttributeName=LockID,AttributeType=S \
+#   --key-schema AttributeName=LockID,KeyType=HASH \
+#   --billing-mode PAY_PER_REQUEST
+
+
+# Option 4: Google Cloud Storage (If you have GCP infrastructure)
+
+# terraform {
+#   backend "gcs" {
+#     bucket = "your-terraform-state-bucket"
+#     prefix = "service-mesh-benchmark"
+#   }
+# }
+
+# To create GCS bucket:
+# gcloud storage buckets create gs://your-terraform-state-bucket \
+#   --location=US \
+#   --uniform-bucket-level-access
+
+
+# Option 5: Azure Blob Storage (If you have Azure infrastructure)
+
+# terraform {
+#   backend "azurerm" {
+#     resource_group_name  = "terraform-state-rg"
+#     storage_account_name = "tfstateaccount"
+#     container_name       = "tfstate"
+#     key                  = "service-mesh-benchmark.tfstate"
+#   }
+# }
+
+
+# Important Notes:
+# ================
+# 1. State Locking: Prevents concurrent modifications
+#    - OCI Object Storage: No native locking, use external coordination
+#    - Terraform Cloud: Built-in locking
+#    - AWS S3 + DynamoDB: Native locking support
+#
+# 2. State Encryption: Protect sensitive data
+#    - Always enable encryption at rest
+#    - Use encrypted backend storage
+#    - Never commit state files to version control
+#
+# 3. Migration from Local Backend:
+#    After configuring this file, run:
+#    terraform init -migrate-state
+#    This will copy your local state to the remote backend
+#
+# 4. Team Collaboration:
+#    - Share backend configuration (this file) via git
+#    - Never share credentials - use environment variables
+#    - Use state locking to prevent conflicts
+#
+# 5. Backup:
+#    - Enable versioning on your state storage
+#    - Regularly backup state files
+#    - Test restore procedures
+
+# For more information:
+# https://developer.hashicorp.com/terraform/language/settings/backends/configuration

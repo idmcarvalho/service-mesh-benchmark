@@ -1,11 +1,11 @@
 .PHONY: help init deploy-infra deploy-workloads test clean destroy lint format type-check quality
 
 # Variables
-TERRAFORM_DIR := infrastructure/terraform/oracle-cloud
-WORKLOADS_DIR := workloads/kubernetes/workloads
-BENCHMARKS_DIR := workloads/scripts/runners
-ANSIBLE_DIR := infrastructure/ansible
-TESTS_DIR := src/tests
+TERRAFORM_DIR := terraform/oracle-cloud
+WORKLOADS_DIR := kubernetes/workloads
+BENCHMARKS_DIR := benchmarks/scripts
+ANSIBLE_DIR := ansible
+TESTS_DIR := tests
 PYTHON := python3
 PYTEST := pytest
 RUFF := ruff
@@ -163,7 +163,7 @@ clean-workloads: ## Remove all workloads
 
 clean-results: ## Clean benchmark results
 	@echo "Cleaning results..."
-	@rm -rf workloads/scripts/results/*
+	@rm -rf benchmarks/results/*
 	@echo "Results cleaned!"
 
 destroy: ## Destroy infrastructure
@@ -295,7 +295,7 @@ test-comprehensive: ## Run comprehensive testing workflow (all phases, all meshe
 	@$(MAKE) test-compare
 	@echo ""
 	@echo "✅ Comprehensive testing complete!"
-	@echo "📊 Check workloads/scripts/results/ for detailed reports"
+	@echo "📊 Check benchmarks/results/ for detailed reports"
 
 test-ci: ## Run CI-friendly test suite
 	@echo "Running CI test suite..."

@@ -1,5 +1,0 @@
-# Pinned dependencies for ML workload
-# Updated: 2025-10-21
-numpy==1.26.4
-scikit-learn==1.4.2
-pandas==2.2.2
