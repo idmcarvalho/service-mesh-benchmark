@@ -9,7 +9,7 @@ from kubernetes import client, config as k8s_config
 
 from src.api.config import BENCHMARKS_DIR, EBPF_PROBE_DIR, RESULTS_DIR
 from src.api.models import HealthResponse
-from src.api.state import running_jobs
+from src.api.state import get_all_jobs
 
 router = APIRouter(prefix="", tags=["Health"])
 
@@ -24,7 +24,8 @@ async def health_check() -> HealthResponse:
     except Exception:
         pass
 
-    active_jobs = len([j for j in running_jobs.values() if j["status"] == "running"])
+    all_jobs = await get_all_jobs()
+    active_jobs = len([j for j in all_jobs.values() if j["status"] == "running"])
 
     return HealthResponse(
         status="healthy",
@@ -38,6 +39,9 @@ async def health_check() -> HealthResponse:
 @router.get("/status")
 async def system_status() -> Dict[str, Any]:
     """Get detailed system status including running jobs and available benchmarks."""
+    # Get all jobs
+    all_jobs = await get_all_jobs()
+
     # Check Kubernetes connectivity
     k8s_status: Dict[str, Any] = {"connected": False, "context": None, "version": None}
     try:
@@ -77,10 +81,10 @@ async def system_status() -> Dict[str, Any]:
             "probe_path": str(ebpf_probe_path) if ebpf_available else None,
         },
         "jobs": {
-            "total": len(running_jobs),
-            "running": len([j for j in running_jobs.values() if j["status"] == "running"]),
-            "completed": len([j for j in running_jobs.values() if j["status"] == "completed"]),
-            "failed": len([j for j in running_jobs.values() if j["status"] == "failed"]),
+            "total": len(all_jobs),
+            "running": len([j for j in all_jobs.values() if j["status"] == "running"]),
+            "completed": len([j for j in all_jobs.values() if j["status"] == "completed"]),
+            "failed": len([j for j in all_jobs.values() if j["status"] == "failed"]),
         },
         "results_dir": str(RESULTS_DIR),
         "results_count": len(list(RESULTS_DIR.glob("*.json"))),

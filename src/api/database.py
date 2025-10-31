@@ -17,7 +17,7 @@ from sqlalchemy import (
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import Session, sessionmaker
 
-from src.api.config import settings
+from src.api.settings import settings
 
 # Create database engine
 # PostgreSQL configuration with connection pooling

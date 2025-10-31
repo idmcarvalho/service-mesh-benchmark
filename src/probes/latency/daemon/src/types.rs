@@ -179,7 +179,11 @@ pub fn calculate_percentiles(mut samples: Vec<f64>) -> Percentiles {
         p90: percentile(90),
         p95: percentile(95),
         p99: percentile(99),
-        p999: percentile(99),
+        p999: {
+            // Calculate 99.9th percentile (999 out of 1000)
+            let index = std::cmp::min(((len * 999) / 1000).saturating_sub(1), len - 1);
+            samples[index]
+        },
     }
 }
 

@@ -9,7 +9,7 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException, status
 
 from src.api.config import EBPF_PROBE_DIR, RESULTS_DIR
 from src.api.models import eBPFProbeRequest, eBPFProbeResponse
-from src.api.state import running_jobs
+from src.api.state import update_job, set_job, get_all_jobs
 
 router = APIRouter(prefix="/ebpf", tags=["eBPF"])
 
@@ -21,13 +21,15 @@ async def run_ebpf_probe(job_id: str, request: eBPFProbeRequest) -> None:
     )
 
     if not probe_path.exists():
-        running_jobs[job_id]["status"] = "failed"
-        running_jobs[job_id]["error"] = "eBPF probe not built"
-        running_jobs[job_id]["completed_at"] = datetime.utcnow()
+        await update_job(job_id, {
+            "status": "failed",
+            "error": "eBPF probe not built",
+            "completed_at": datetime.utcnow()
+        })
         return
 
     try:
-        running_jobs[job_id]["status"] = "running"
+        await update_job(job_id, {"status": "running"})
 
         # Prepare output file
         timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
@@ -58,18 +60,24 @@ async def run_ebpf_probe(job_id: str, request: eBPFProbeRequest) -> None:
         stdout, stderr = await process.communicate()
 
         if process.returncode == 0:
-            running_jobs[job_id]["result_file"] = str(output_file)
-            running_jobs[job_id]["status"] = "completed"
+            await update_job(job_id, {
+                "result_file": str(output_file),
+                "status": "completed"
+            })
         else:
-            running_jobs[job_id]["status"] = "failed"
-            running_jobs[job_id]["error"] = stderr.decode() if stderr else "Unknown error"
+            await update_job(job_id, {
+                "status": "failed",
+                "error": stderr.decode() if stderr else "Unknown error"
+            })
 
     except Exception as e:
-        running_jobs[job_id]["status"] = "failed"
-        running_jobs[job_id]["error"] = str(e)
+        await update_job(job_id, {
+            "status": "failed",
+            "error": str(e)
+        })
 
     finally:
-        running_jobs[job_id]["completed_at"] = datetime.utcnow()
+        await update_job(job_id, {"completed_at": datetime.utcnow()})
 
 
 @router.post("/probe/start", response_model=eBPFProbeResponse)
@@ -92,7 +100,7 @@ async def start_ebpf_probe(
 
     # Initialize job tracking
     started_at = datetime.utcnow()
-    running_jobs[job_id] = {
+    await set_job(job_id, {
         "job_id": job_id,
         "status": "pending",
         "test_type": "ebpf_probe",
@@ -101,7 +109,7 @@ async def start_ebpf_probe(
         "completed_at": None,
         "result_file": None,
         "error": None,
-    }
+    })
 
     # Start probe in background
     background_tasks.add_task(run_ebpf_probe, job_id, request)
@@ -122,9 +130,10 @@ async def ebpf_probe_status() -> Dict[str, Any]:
     )
 
     available = probe_path.exists()
+    all_jobs = await get_all_jobs()
     running_probes = [
         j
-        for j in running_jobs.values()
+        for j in all_jobs.values()
         if j["test_type"] == "ebpf_probe" and j["status"] == "running"
     ]
 

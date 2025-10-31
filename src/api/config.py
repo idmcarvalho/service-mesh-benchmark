@@ -3,6 +3,8 @@
 from pathlib import Path
 from typing import Dict
 
+from src.api.settings import settings
+
 # Project paths
 PROJECT_ROOT = Path(__file__).parent.parent
 BENCHMARKS_DIR = PROJECT_ROOT / "benchmarks" / "scripts"

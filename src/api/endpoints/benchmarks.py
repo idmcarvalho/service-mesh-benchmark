@@ -10,7 +10,7 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, status
 
 from src.api.config import BENCHMARK_SCRIPTS, BENCHMARKS_DIR, RESULTS_DIR
 from src.api.models import BenchmarkRequest, BenchmarkResponse, JobStatus
-from src.api.state import running_jobs
+from src.api.state import update_job, set_job, get_job, delete_job, get_all_jobs
 
 router = APIRouter(prefix="/benchmarks", tags=["Benchmarks"])
 
@@ -24,14 +24,16 @@ async def run_benchmark_script(
     script_path = BENCHMARKS_DIR / script_name
 
     if not script_path.exists():
-        running_jobs[job_id]["status"] = "failed"
-        running_jobs[job_id]["error"] = f"Script not found: {script_name}"
-        running_jobs[job_id]["completed_at"] = datetime.utcnow()
+        await update_job(job_id, {
+            "status": "failed",
+            "error": f"Script not found: {script_name}",
+            "completed_at": datetime.utcnow()
+        })
         return
 
     try:
         # Update status
-        running_jobs[job_id]["status"] = "running"
+        await update_job(job_id, {"status": "running"})
 
         # Prepare environment
         env: Dict[str, str] = {}
@@ -54,21 +56,29 @@ async def run_benchmark_script(
             results_files = list(RESULTS_DIR.glob("*.json"))
             if results_files:
                 latest_result = max(results_files, key=lambda p: p.stat().st_mtime)
-                running_jobs[job_id]["result_file"] = str(latest_result)
-                running_jobs[job_id]["status"] = "completed"
+                await update_job(job_id, {
+                    "result_file": str(latest_result),
+                    "status": "completed"
+                })
             else:
-                running_jobs[job_id]["status"] = "failed"
-                running_jobs[job_id]["error"] = "No result file generated"
+                await update_job(job_id, {
+                    "status": "failed",
+                    "error": "No result file generated"
+                })
         else:
-            running_jobs[job_id]["status"] = "failed"
-            running_jobs[job_id]["error"] = stderr.decode() if stderr else "Unknown error"
+            await update_job(job_id, {
+                "status": "failed",
+                "error": stderr.decode() if stderr else "Unknown error"
+            })
 
     except Exception as e:
-        running_jobs[job_id]["status"] = "failed"
-        running_jobs[job_id]["error"] = str(e)
+        await update_job(job_id, {
+            "status": "failed",
+            "error": str(e)
+        })
 
     finally:
-        running_jobs[job_id]["completed_at"] = datetime.utcnow()
+        await update_job(job_id, {"completed_at": datetime.utcnow()})
 
 
 @router.post("/start", response_model=BenchmarkResponse)
@@ -101,7 +111,7 @@ async def start_benchmark(
 
     # Initialize job tracking
     started_at = datetime.utcnow()
-    running_jobs[job_id] = {
+    await set_job(job_id, {
         "job_id": job_id,
         "status": "pending",
         "test_type": request.test_type,
@@ -110,7 +120,7 @@ async def start_benchmark(
         "completed_at": None,
         "result_file": None,
         "error": None,
-    }
+    })
 
     # Start benchmark in background
     background_tasks.add_task(run_benchmark_script, job_id, script_name, env_vars)
@@ -129,7 +139,8 @@ async def list_jobs(
     test_type_filter: Optional[str] = Query(None, description="Filter by test type"),
 ) -> List[JobStatus]:
     """List all benchmark jobs."""
-    jobs = list(running_jobs.values())
+    all_jobs = await get_all_jobs()
+    jobs = list(all_jobs.values())
 
     # Apply filters
     if status_filter:
@@ -143,23 +154,23 @@ async def list_jobs(
 @router.get("/jobs/{job_id}", response_model=JobStatus)
 async def get_job_status(job_id: str) -> JobStatus:
     """Get status of a specific job."""
-    if job_id not in running_jobs:
+    job = await get_job(job_id)
+    if not job:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=f"Job not found: {job_id}"
         )
 
-    return JobStatus(**running_jobs[job_id])
+    return JobStatus(**job)
 
 
 @router.get("/jobs/{job_id}/result")
 async def get_job_result(job_id: str) -> Dict[str, Any]:
     """Get the result of a completed job."""
-    if job_id not in running_jobs:
+    job = await get_job(job_id)
+    if not job:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=f"Job not found: {job_id}"
         )
-
-    job = running_jobs[job_id]
 
     if job["status"] != "completed":
         raise HTTPException(
@@ -185,20 +196,21 @@ async def get_job_result(job_id: str) -> Dict[str, Any]:
 @router.delete("/jobs/{job_id}")
 async def cancel_job(job_id: str) -> Dict[str, str]:
     """Cancel a running job (if possible) or remove from tracking."""
-    if job_id not in running_jobs:
+    job = await get_job(job_id)
+    if not job:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=f"Job not found: {job_id}"
         )
 
-    job = running_jobs[job_id]
-
     if job["status"] == "running":
         # Note: Canceling running subprocess is complex - for now just mark as failed
-        running_jobs[job_id]["status"] = "failed"
-        running_jobs[job_id]["error"] = "Cancelled by user"
-        running_jobs[job_id]["completed_at"] = datetime.utcnow()
+        await update_job(job_id, {
+            "status": "failed",
+            "error": "Cancelled by user",
+            "completed_at": datetime.utcnow()
+        })
 
     # Remove from tracking
-    del running_jobs[job_id]
+    await delete_job(job_id)
 
     return {"message": f"Job {job_id} removed"}
