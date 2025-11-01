@@ -43,7 +43,7 @@ services:
   api:
     build:
       context: .
-      dockerfile: docker/api/Dockerfile
+      dockerfile: Dockerfile
     container_name: benchmark-api
     ports:
       - "8000:8000"
@@ -54,7 +54,7 @@ services:
       DEBUG: "true"
       ALLOWED_ORIGINS: "http://localhost:3000,http://localhost:8000"
     volumes:
-      - ./api:/app/api
+      - ./src:/app/src
       - ./benchmarks/results:/app/benchmarks/results
       - ~/.kube:/root/.kube:ro
     depends_on:
@@ -64,6 +64,10 @@ services:
         condition: service_healthy
     networks:
       - benchmark-network
+    privileged: true
+    cap_add:
+      - SYS_ADMIN
+      - NET_ADMIN
 
   # Prometheus Monitoring
   prometheus:
