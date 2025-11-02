@@ -96,3 +96,15 @@ const _: () = {
     // ConnectionState alignment check
     assert!(core::mem::size_of::<ConnectionState>() % core::mem::align_of::<ConnectionState>() == 0);
 };
+
+// Implement Aya's Pod trait for userspace usage
+#[cfg(feature = "userspace")]
+mod userspace_impls {
+    use super::*;
+
+    // Pod trait implementations for reading from perf buffers in userspace
+    unsafe impl aya::Pod for ConnectionKey {}
+    unsafe impl aya::Pod for LatencyEvent {}
+    unsafe impl aya::Pod for PacketDropEvent {}
+    unsafe impl aya::Pod for ConnectionState {}
+}

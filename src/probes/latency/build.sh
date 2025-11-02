@@ -19,13 +19,18 @@ if ! command -v rustc &> /dev/null; then
 fi
 
 if ! command -v bpf-linker &> /dev/null; then
-    echo "${RED}❌ bpf-linker not found. Install with: cargo install bpf-linker --no-default-features --features llvm-19${NC}"
+    echo "${RED}❌ bpf-linker not found. Install with: cargo install bpf-linker${NC}"
     exit 1
 fi
 
-if ! llvm-config-19 --version &> /dev/null; then
-    echo "${RED}❌ LLVM 19 not found. See README.md for installation instructions${NC}"
-    exit 1
+# Check for LLVM (optional, bpf-linker can use bundled LLVM)
+if llvm-config-19 --version &> /dev/null 2>&1; then
+    echo "${GREEN}✓ LLVM 19 found${NC}"
+elif llvm-config --version &> /dev/null 2>&1; then
+    LLVM_VER=$(llvm-config --version)
+    echo "${GREEN}✓ LLVM $LLVM_VER found${NC}"
+else
+    echo "${BLUE}ℹ️  System LLVM not found, using bpf-linker's bundled LLVM${NC}"
 fi
 
 echo "${GREEN}✓ All prerequisites found${NC}"
@@ -33,9 +38,9 @@ echo
 
 # Build eBPF program
 echo "${BLUE}🏗️  Building eBPF kernel program...${NC}"
-cd latency-probe-ebpf
+cd kernel
 
-if cargo build --release --target=bpfel-unknown-none; then
+if cargo +nightly build --release --target=bpfel-unknown-none -Zbuild-std=core; then
     echo "${GREEN}✓ eBPF program built successfully${NC}"
     echo "   Output: target/bpfel-unknown-none/release/latency-probe"
 else
@@ -48,7 +53,7 @@ echo
 
 # Build userspace program
 echo "${BLUE}🏗️  Building userspace loader...${NC}"
-cd latency-probe-userspace
+cd daemon
 
 if cargo build --release; then
     echo "${GREEN}✓ Userspace program built successfully${NC}"
@@ -64,7 +69,7 @@ echo
 # Set capabilities (optional, requires sudo)
 if [ "$EUID" -eq 0 ]; then
     echo "${BLUE}🔐 Setting capabilities...${NC}"
-    setcap cap_bpf,cap_net_admin=ep latency-probe-userspace/target/release/latency-probe
+    setcap cap_bpf,cap_net_admin=ep daemon/target/release/latency-probe
     echo "${GREEN}✓ Capabilities set (can run without sudo)${NC}"
 else
     echo "${BLUE}ℹ️  Run with sudo to set capabilities: sudo ./build.sh${NC}"
@@ -74,6 +79,6 @@ echo
 echo "${GREEN}✅ Build complete!${NC}"
 echo
 echo "Usage:"
-echo "  sudo ./latency-probe-userspace/target/release/latency-probe"
-echo "  sudo ./latency-probe-userspace/target/release/latency-probe --help"
+echo "  sudo ./daemon/target/release/latency-probe"
+echo "  sudo ./daemon/target/release/latency-probe --help"
 echo

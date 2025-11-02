@@ -24,11 +24,6 @@ pub mod kernel {
 
     pub use probe_common::types::{ConnectionKey, LatencyEvent, PacketDropEvent, ConnectionState};
     pub use probe_common::constants;
-
-    // Implement Pod trait for kernel types (required by Aya for reading from perf buffers)
-    unsafe impl aya::Pod for LatencyEvent {}
-    unsafe impl aya::Pod for PacketDropEvent {}
-    unsafe impl aya::Pod for ConnectionState {}
 }
 
 // Re-export commonly used kernel types at module level for convenience

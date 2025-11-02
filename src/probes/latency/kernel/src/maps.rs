@@ -3,7 +3,10 @@
 //! Defines the maps used for communication between kernel and userspace,
 //! and for storing connection state.
 
-use aya_ebpf::maps::{HashMap, PerfEventArray};
+use aya_ebpf::{
+    macros::map,
+    maps::{HashMap, PerfEventArray},
+};
 use probe_common::{types::*, constants::*};
 
 /// Map to store connection start timestamps
@@ -23,7 +26,7 @@ pub static CONNECTION_START: HashMap<ConnectionKey, u64> =
 /// the userspace program for aggregation and analysis.
 #[map]
 pub static EVENTS: PerfEventArray<LatencyEvent> =
-    PerfEventArray::with_max_entries(MAX_EVENTS, 0);
+    PerfEventArray::new(0);
 
 /// Statistics counter map
 ///

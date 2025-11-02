@@ -6,14 +6,16 @@ use anyhow::{Context, Result};
 use aya::{
     maps::perf::AsyncPerfEventArray,
     programs::KProbe,
-    Ebpf,
+    Bpf,
 };
 use log::{info, warn};
 use std::path::PathBuf;
 
+use crate::types::LatencyEvent;
+
 /// eBPF program loader and manager
 pub struct ProbeLoader {
-    ebpf: Ebpf,
+    ebpf: Bpf,
 }
 
 impl ProbeLoader {
@@ -33,7 +35,7 @@ impl ProbeLoader {
             info!("Loading eBPF object from: {:?}", obj_path);
             let data = std::fs::read(&obj_path)
                 .with_context(|| format!("Failed to read eBPF object file: {:?}", obj_path))?;
-            Ebpf::load(&data).context("Failed to load eBPF program")?
+            Bpf::load(&data).context("Failed to load eBPF program")?
         } else {
             // Try to load embedded bytecode
             #[cfg(feature = "embedded")]
@@ -43,7 +45,7 @@ impl ProbeLoader {
                     env!("CARGO_MANIFEST_DIR"),
                     "/../../target/bpfel-unknown-none/release/latency-probe"
                 ));
-                Ebpf::load(data).context("Failed to load embedded eBPF program")?
+                Bpf::load(data).context("Failed to load embedded eBPF program")?
             }
             #[cfg(not(feature = "embedded"))]
             {
@@ -63,9 +65,9 @@ impl ProbeLoader {
     /// Enables kernel-side logging from the eBPF program.
     /// Non-fatal if it fails.
     pub fn init_logger(&mut self) {
-        if let Err(e) = aya_log::EbpfLogger::init(&mut self.ebpf) {
-            warn!("Failed to initialize eBPF logger: {}", e);
-        }
+        // eBPF logger temporarily disabled due to version mismatch
+        // TODO: Update to compatible aya-log version when available
+        warn!("eBPF logger not available in aya 0.12 - logging from eBPF program will not be captured");
     }
 
     /// Attach kprobes to kernel functions
@@ -130,7 +132,7 @@ impl ProbeLoader {
     /// # Returns
     ///
     /// AsyncPerfEventArray for reading latency events from the kernel
-    pub fn get_perf_array(&mut self) -> Result<AsyncPerfEventArray<'_>> {
+    pub fn get_perf_array(&mut self) -> Result<AsyncPerfEventArray<aya::maps::MapData>> {
         let map = self
             .ebpf
             .take_map("EVENTS")
@@ -143,7 +145,7 @@ impl ProbeLoader {
     /// Get reference to the eBPF object
     ///
     /// Useful for accessing maps or programs directly.
-    pub fn ebpf(&mut self) -> &mut Ebpf {
+    pub fn ebpf(&mut self) -> &mut Bpf {
         &mut self.ebpf
     }
 }

@@ -10,11 +10,11 @@ path = "src/lib.rs"
 
 [dependencies]
 # Shared common types
-probe-common = { path = "../../common" }
+probe-common = { path = "../../common", features = ["userspace"] }
 
 # eBPF userspace framework
 aya = { version = "0.12", features = ["async_tokio"] }
-aya-log = "0.2"
+aya-log = "0.2.1"
 
 # CLI and configuration
 clap = { version = "4", features = ["derive"] }

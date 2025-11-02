@@ -4,7 +4,7 @@
 
 use crate::{collector::MetricsCollector, types::LatencyEvent};
 use anyhow::Result;
-use aya::{maps::perf::AsyncPerfEventArray, util::online_cpus};
+use aya::{maps::{perf::AsyncPerfEventArray, MapData}, util::online_cpus};
 use bytes::BytesMut;
 use log::{debug, info, warn};
 use std::{sync::Arc, time::Duration};
@@ -44,7 +44,7 @@ impl EventProcessor {
     /// # Returns
     ///
     /// Result indicating success or failure
-    pub async fn spawn_cpu_readers(&self, mut perf_array: AsyncPerfEventArray<'_>) -> Result<()> {
+    pub async fn spawn_cpu_readers(&self, mut perf_array: AsyncPerfEventArray<MapData>) -> Result<()> {
         let cpus = online_cpus()?;
         info!("Spawning event readers for {} CPUs", cpus.len());
 

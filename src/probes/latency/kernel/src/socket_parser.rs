@@ -15,7 +15,7 @@ use probe_common::types::ConnectionKey;
 ///
 /// We only define the fields we need. CO-RE will handle the actual offsets.
 #[repr(C)]
-struct sock {
+pub(crate) struct sock {
     __sk_common: sock_common,
 }
 
@@ -23,7 +23,7 @@ struct sock {
 ///
 /// Contains the connection 4-tuple we need for tracking.
 #[repr(C)]
-struct sock_common {
+pub(crate) struct sock_common {
     skc_daddr: u32,      // Destination address
     skc_rcv_saddr: u32,  // Source address
     skc_dport: u16,      // Destination port (network byte order)

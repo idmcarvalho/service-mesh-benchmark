@@ -136,17 +136,9 @@ fn try_tcp_recvmsg(ctx: &ProbeContext) -> Result<u32, i64> {
     let event = create_latency_event(key, current_time, latency_ns, EVENT_TYPE_RECV);
 
     unsafe {
-        match EVENTS.output(&ctx, &event, 0) {
-            Ok(_) => {
-                // Event sent successfully
-                // Update the start time for the next measurement
-                let _ = CONNECTION_START.insert(&key, &current_time, 0);
-            }
-            Err(_) => {
-                // Failed to send event (buffer full?)
-                increment_stat(STAT_DROPPED_EVENTS);
-            }
-        }
+        EVENTS.output(ctx, &event, 0);
+        // Update the start time for the next measurement
+        let _ = CONNECTION_START.insert(&key, &current_time, 0);
     }
 
     Ok(0)
@@ -220,15 +212,9 @@ fn try_tcp_cleanup_rbuf(ctx: &ProbeContext) -> Result<u32, i64> {
     let event = create_latency_event(key, current_time, latency_ns, EVENT_TYPE_CLEANUP);
 
     unsafe {
-        match EVENTS.output(&ctx, &event, 0) {
-            Ok(_) => {
-                // Update timestamp for next measurement
-                let _ = CONNECTION_START.insert(&key, &current_time, 0);
-            }
-            Err(_) => {
-                increment_stat(STAT_DROPPED_EVENTS);
-            }
-        }
+        EVENTS.output(ctx, &event, 0);
+        // Update timestamp for next measurement
+        let _ = CONNECTION_START.insert(&key, &current_time, 0);
     }
 
     Ok(0)

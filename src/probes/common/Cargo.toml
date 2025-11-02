@@ -10,5 +10,9 @@ name = "probe_common"
 path = "src/lib.rs"
 
 [dependencies]
-# No dependencies needed for shared types
-# This crate should be minimal and dependency-free
+# Optional Aya dependency for userspace Pod trait implementations
+aya = { version = "0.12", optional = true, default-features = false }
+
+[features]
+default = []
+userspace = ["aya"]
