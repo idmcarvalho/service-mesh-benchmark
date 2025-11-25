@@ -1,0 +1,240 @@
+---
+# Service Mesh Benchmark - Server Setup Playbook
+# This playbook configures a fresh Ubuntu 22.04 instance with all required dependencies
+
+- name: Setup Server for Service Mesh Benchmark
+  hosts: benchmark_servers
+  become: true
+  gather_facts: true
+
+  vars:
+    docker_users:
+      - ubuntu
+    docker_compose_version: "2.24.0"
+    kubectl_version: "1.31.0"
+
+  pre_tasks:
+    - name: Wait for cloud-init to complete
+      ansible.builtin.wait_for:
+        path: /var/lib/cloud/instance/cloud-init-complete
+        timeout: 300
+        state: present
+      tags: [always]
+
+    - name: Update apt cache
+      ansible.builtin.apt:
+        update_cache: yes
+        cache_valid_time: 3600
+      tags: [always]
+
+  tasks:
+    # ========================================================================
+    # System Package Installation
+    # ========================================================================
+    - name: Install required system packages
+      ansible.builtin.apt:
+        name:
+          - apt-transport-https
+          - ca-certificates
+          - curl
+          - gnupg
+          - lsb-release
+          - software-properties-common
+          - git
+          - vim
+          - htop
+          - net-tools
+          - jq
+          - unzip
+          - python3-pip
+          - python3-setuptools
+          - netfilter-persistent
+          - iptables-persistent
+        state: present
+        update_cache: yes
+      tags: [packages]
+
+    # ========================================================================
+    # Docker Installation
+    # ========================================================================
+    - name: Check if Docker is already installed
+      ansible.builtin.command: docker --version
+      register: docker_installed
+      ignore_errors: true
+      changed_when: false
+      tags: [docker]
+
+    - name: Add Docker GPG key
+      ansible.builtin.apt_key:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        state: present
+        keyring: /etc/apt/keyrings/docker.gpg
+      when: docker_installed.rc != 0
+      tags: [docker]
+
+    - name: Add Docker repository
+      ansible.builtin.apt_repository:
+        repo: "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+        state: present
+        filename: docker
+      when: docker_installed.rc != 0
+      tags: [docker]
+
+    - name: Install Docker Engine
+      ansible.builtin.apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-buildx-plugin
+          - docker-compose-plugin
+        state: present
+        update_cache: yes
+      when: docker_installed.rc != 0
+      tags: [docker]
+
+    - name: Start and enable Docker service
+      ansible.builtin.systemd:
+        name: docker
+        state: started
+        enabled: yes
+      tags: [docker]
+
+    - name: Add users to docker group
+      ansible.builtin.user:
+        name: "{{ item }}"
+        groups: docker
+        append: yes
+      loop: "{{ docker_users }}"
+      tags: [docker]
+
+    - name: Configure Docker daemon
+      ansible.builtin.copy:
+        dest: /etc/docker/daemon.json
+        content: |
+          {
+            "log-driver": "json-file",
+            "log-opts": {
+              "max-size": "10m",
+              "max-file": "3"
+            },
+            "storage-driver": "overlay2"
+          }
+        mode: '0644'
+      notify: Restart Docker
+      tags: [docker]
+
+    # ========================================================================
+    # kubectl Installation
+    # ========================================================================
+    - name: Check if kubectl is already installed
+      ansible.builtin.command: kubectl version --client
+      register: kubectl_installed
+      ignore_errors: true
+      changed_when: false
+      tags: [kubectl]
+
+    - name: Add Kubernetes GPG key
+      ansible.builtin.apt_key:
+        url: https://pkgs.k8s.io/core:/stable:/v{{ kubectl_version.split('.')[0] }}.{{ kubectl_version.split('.')[1] }}/deb/Release.key
+        state: present
+        keyring: /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+      when: kubectl_installed.rc != 0
+      tags: [kubectl]
+
+    - name: Add Kubernetes repository
+      ansible.builtin.apt_repository:
+        repo: "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v{{ kubectl_version.split('.')[0] }}.{{ kubectl_version.split('.')[1] }}/deb/ /"
+        state: present
+        filename: kubernetes
+      when: kubectl_installed.rc != 0
+      tags: [kubectl]
+
+    - name: Install kubectl
+      ansible.builtin.apt:
+        name: kubectl
+        state: present
+        update_cache: yes
+      when: kubectl_installed.rc != 0
+      tags: [kubectl]
+
+    # ========================================================================
+    # System Optimization
+    # ========================================================================
+    - name: Configure system limits
+      ansible.builtin.blockinfile:
+        path: /etc/security/limits.conf
+        block: |
+          # Service Mesh Benchmark optimizations
+          * soft nofile 65536
+          * hard nofile 65536
+          * soft nproc 4096
+          * hard nproc 4096
+        marker: "# {mark} ANSIBLE MANAGED BLOCK - Service Mesh Benchmark"
+        create: yes
+      tags: [optimization]
+
+    - name: Configure kernel parameters
+      ansible.builtin.sysctl:
+        name: "{{ item.name }}"
+        value: "{{ item.value }}"
+        sysctl_file: /etc/sysctl.d/99-service-mesh-benchmark.conf
+        reload: yes
+      loop:
+        - { name: 'net.core.somaxconn', value: '1024' }
+        - { name: 'net.ipv4.tcp_max_syn_backlog', value: '2048' }
+        - { name: 'net.ipv4.ip_local_port_range', value: '1024 65535' }
+        - { name: 'net.ipv4.tcp_tw_reuse', value: '1' }
+        - { name: 'net.ipv4.tcp_fin_timeout', value: '15' }
+        - { name: 'net.core.netdev_max_backlog', value: '2048' }
+        - { name: 'kernel.unprivileged_bpf_disabled', value: '0' }
+        # eBPF JIT compilation optimizations (critical for performance)
+        - { name: 'net.core.bpf_jit_enable', value: '1' }
+        - { name: 'net.core.bpf_jit_harden', value: '0' }
+        - { name: 'net.core.bpf_jit_kallsyms', value: '1' }
+      tags: [optimization]
+
+    # ========================================================================
+    # Application Directory
+    # ========================================================================
+    - name: Create application directory
+      ansible.builtin.file:
+        path: "{{ app_directory }}"
+        state: directory
+        owner: ubuntu
+        group: ubuntu
+        mode: '0755'
+      tags: [app]
+
+    # ========================================================================
+    # Python Dependencies for Ansible
+    # ========================================================================
+    - name: Install Python Docker module
+      ansible.builtin.pip:
+        name:
+          - docker
+          - docker-compose
+        state: present
+      tags: [python]
+
+  handlers:
+    - name: Restart Docker
+      ansible.builtin.systemd:
+        name: docker
+        state: restarted
+
+  post_tasks:
+    - name: Display setup completion message
+      ansible.builtin.debug:
+        msg: |
+          ============================================================
+          Server setup completed successfully!
+          ============================================================
+          Docker version: {{ docker_installed.stdout | default('Installed') }}
+          kubectl version: {{ kubectl_installed.stdout | default('Installed') }}
+          Application directory: {{ app_directory }}
+
+          Next step: Run the application deployment playbook
+          ansible-playbook -i inventory/hosts.yml playbooks/deploy-app.yml
+          ============================================================
+      tags: [always]

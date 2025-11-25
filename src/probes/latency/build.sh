@@ -36,6 +36,45 @@ fi
 echo "${GREEN}✓ All prerequisites found${NC}"
 echo
 
+# Check eBPF JIT compilation status
+echo "${BLUE}🔍 Checking eBPF JIT status...${NC}"
+if [ -f /proc/sys/net/core/bpf_jit_enable ]; then
+    JIT_STATUS=$(cat /proc/sys/net/core/bpf_jit_enable)
+    case $JIT_STATUS in
+        0)
+            echo "${RED}⚠️  WARNING: eBPF JIT is DISABLED!${NC}"
+            echo "${RED}   This will severely impact performance (10-100x slower)${NC}"
+            echo "${BLUE}   Enable with: sudo sysctl -w net.core.bpf_jit_enable=1${NC}"
+            read -p "   Continue anyway? [y/N] " -n 1 -r
+            echo
+            if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+                exit 1
+            fi
+            ;;
+        1)
+            echo "${GREEN}✓ eBPF JIT is enabled${NC}"
+            ;;
+        2)
+            echo "${GREEN}✓ eBPF JIT is enabled with debug output${NC}"
+            ;;
+    esac
+
+    # Check JIT hardening
+    if [ -f /proc/sys/net/core/bpf_jit_harden ]; then
+        JIT_HARDEN=$(cat /proc/sys/net/core/bpf_jit_harden)
+        if [ "$JIT_HARDEN" != "0" ]; then
+            echo "${BLUE}ℹ️  JIT hardening is enabled (value: $JIT_HARDEN)${NC}"
+            echo "${BLUE}   For best performance, disable with: sudo sysctl -w net.core.bpf_jit_harden=0${NC}"
+        else
+            echo "${GREEN}✓ JIT hardening is disabled (optimal for performance)${NC}"
+        fi
+    fi
+else
+    echo "${BLUE}ℹ️  Cannot check JIT status (/proc/sys/net/core/bpf_jit_enable not found)${NC}"
+    echo "${BLUE}   This is normal on some systems or when not running as root${NC}"
+fi
+echo
+
 # Build eBPF program
 echo "${BLUE}🏗️  Building eBPF kernel program...${NC}"
 cd kernel

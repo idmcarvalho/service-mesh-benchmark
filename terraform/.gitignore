@@ -1,0 +1,38 @@
+# Terraform files to ignore
+
+# Local .terraform directories
+**/.terraform/*
+
+# .tfstate files
+*.tfstate
+*.tfstate.*
+
+# Crash log files
+crash.log
+crash.*.log
+
+# Exclude all .tfvars files (contain sensitive data)
+*.tfvars
+*.tfvars.json
+
+# Ignore override files
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Ignore CLI configuration files
+.terraformrc
+terraform.rc
+
+# Lock files (commit .terraform.lock.hcl for consistency)
+# Comment this out if you want to ignore lock files
+# .terraform.lock.hcl
+
+# Terraform outputs
+terraform_outputs.json
+
+# SSH keys
+*.pem
+*.key
+id_rsa*

@@ -1,0 +1,280 @@
+---
+# Service Mesh Benchmark - Application Deployment Playbook
+# This playbook deploys the application using Docker Compose
+
+- name: Deploy Service Mesh Benchmark Application
+  hosts: benchmark_servers
+  become: true
+  gather_facts: true
+
+  vars:
+    repo_url: "https://github.com/your-org/service-mesh-benchmark.git"  # Update this!
+    repo_branch: "main"
+    app_user: ubuntu
+    env_file_template: ".env.production.example"
+
+  vars_prompt:
+    - name: postgres_password
+      prompt: "Enter PostgreSQL password (or press Enter to generate)"
+      private: yes
+      default: ""
+
+    - name: redis_password
+      prompt: "Enter Redis password (or press Enter to generate)"
+      private: yes
+      default: ""
+
+    - name: secret_key
+      prompt: "Enter Secret Key (or press Enter to generate)"
+      private: yes
+      default: ""
+
+    - name: grafana_password
+      prompt: "Enter Grafana password (or press Enter to generate)"
+      private: yes
+      default: ""
+
+  pre_tasks:
+    - name: Check if Docker is running
+      ansible.builtin.systemd:
+        name: docker
+        state: started
+      tags: [always]
+
+    - name: Generate passwords if not provided
+      ansible.builtin.set_fact:
+        postgres_password: "{{ postgres_password | default(lookup('password', '/dev/null length=32 chars=ascii_letters,digits'), true) }}"
+        redis_password: "{{ redis_password | default(lookup('password', '/dev/null length=32 chars=ascii_letters,digits'), true) }}"
+        secret_key: "{{ secret_key | default(lookup('password', '/dev/null length=48 chars=ascii_letters,digits'), true) }}"
+        grafana_password: "{{ grafana_password | default(lookup('password', '/dev/null length=24 chars=ascii_letters,digits'), true) }}"
+      tags: [always]
+
+  tasks:
+    # ========================================================================
+    # Repository Management
+    # ========================================================================
+    - name: Check if repository already exists
+      ansible.builtin.stat:
+        path: "{{ app_directory }}/.git"
+      register: git_repo
+      tags: [deploy]
+
+    - name: Clone application repository
+      ansible.builtin.git:
+        repo: "{{ repo_url }}"
+        dest: "{{ app_directory }}"
+        version: "{{ repo_branch }}"
+        force: yes
+      become_user: "{{ app_user }}"
+      when: not git_repo.stat.exists
+      tags: [deploy]
+
+    - name: Pull latest changes from repository
+      ansible.builtin.git:
+        repo: "{{ repo_url }}"
+        dest: "{{ app_directory }}"
+        version: "{{ repo_branch }}"
+        update: yes
+      become_user: "{{ app_user }}"
+      when: git_repo.stat.exists
+      tags: [deploy, update]
+
+    # ========================================================================
+    # Environment Configuration
+    # ========================================================================
+    - name: Generate .env.production file
+      ansible.builtin.template:
+        src: ../templates/env.production.j2
+        dest: "{{ app_directory }}/.env.production"
+        owner: "{{ app_user }}"
+        group: "{{ app_user }}"
+        mode: '0600'
+      tags: [deploy, config]
+
+    - name: Create frontend .env file
+      ansible.builtin.copy:
+        dest: "{{ app_directory }}/frontend/.env"
+        content: |
+          VITE_API_URL={{ use_ssl | bool | ternary('https', 'http') }}://{{ domain_name if domain_name else ansible_host }}{{ ':8000' if not use_ssl else '' }}
+        owner: "{{ app_user }}"
+        group: "{{ app_user }}"
+        mode: '0644'
+      tags: [deploy, config]
+
+    # ========================================================================
+    # Database Initialization
+    # ========================================================================
+    - name: Check if init-db.sql exists
+      ansible.builtin.stat:
+        path: "{{ app_directory }}/scripts/init-db.sql"
+      register: init_db_script
+      tags: [deploy]
+
+    - name: Ensure init-db.sql is executable
+      ansible.builtin.file:
+        path: "{{ app_directory }}/scripts/init-db.sql"
+        mode: '0644'
+      when: init_db_script.stat.exists
+      tags: [deploy]
+
+    # ========================================================================
+    # Docker Deployment
+    # ========================================================================
+    - name: Stop existing containers
+      community.docker.docker_compose:
+        project_src: "{{ app_directory }}"
+        files:
+          - docker-compose.prod.yml
+        state: absent
+      become_user: "{{ app_user }}"
+      ignore_errors: yes
+      tags: [deploy, restart]
+
+    - name: Pull Docker base images
+      community.docker.docker_image:
+        name: "{{ item }}"
+        source: pull
+      loop:
+        - postgres:16-alpine
+        - redis:7-alpine
+        - prom/prometheus:latest
+        - grafana/grafana:latest
+      tags: [deploy]
+
+    - name: Build and start application containers
+      community.docker.docker_compose:
+        project_src: "{{ app_directory }}"
+        files:
+          - docker-compose.prod.yml
+        build: yes
+        pull: yes
+        state: present
+        recreate: always
+        remove_orphans: yes
+      become_user: "{{ app_user }}"
+      environment:
+        DOCKER_BUILDKIT: "1"
+      tags: [deploy, restart]
+
+    # ========================================================================
+    # Health Checks
+    # ========================================================================
+    - name: Wait for PostgreSQL to be healthy
+      ansible.builtin.command: docker exec benchmark-postgres pg_isready -U benchmark
+      register: postgres_health
+      retries: 30
+      delay: 2
+      until: postgres_health.rc == 0
+      changed_when: false
+      tags: [deploy, health]
+
+    - name: Wait for Redis to be healthy
+      ansible.builtin.command: docker exec benchmark-redis redis-cli -a "{{ redis_password }}" --no-auth-warning ping
+      register: redis_health
+      retries: 30
+      delay: 2
+      until: redis_health.rc == 0
+      changed_when: false
+      tags: [deploy, health]
+
+    - name: Wait for API to be healthy
+      ansible.builtin.uri:
+        url: "http://localhost:8000/health"
+        status_code: 200
+      register: api_health
+      retries: 60
+      delay: 2
+      until: api_health.status == 200
+      tags: [deploy, health]
+
+    - name: Wait for Frontend to be responding
+      ansible.builtin.uri:
+        url: "http://localhost:3000"
+        status_code: 200
+      register: frontend_health
+      retries: 60
+      delay: 2
+      until: frontend_health.status == 200
+      tags: [deploy, health]
+
+    # ========================================================================
+    # Container Status
+    # ========================================================================
+    - name: Get container status
+      community.docker.docker_container_info:
+        name: "{{ item }}"
+      loop:
+        - benchmark-postgres
+        - benchmark-redis
+        - benchmark-api
+        - benchmark-frontend
+        - benchmark-prometheus
+        - benchmark-grafana
+      register: container_info
+      tags: [deploy, status]
+
+  post_tasks:
+    - name: Save deployment credentials
+      ansible.builtin.copy:
+        dest: "{{ app_directory }}/CREDENTIALS.txt"
+        content: |
+          Service Mesh Benchmark - Deployment Credentials
+          ================================================
+          Generated: {{ ansible_date_time.iso8601 }}
+
+          PostgreSQL:
+            Password: {{ postgres_password }}
+
+          Redis:
+            Password: {{ redis_password }}
+
+          API:
+            Secret Key: {{ secret_key }}
+
+          Grafana:
+            Username: admin
+            Password: {{ grafana_password }}
+
+          ================================================
+          IMPORTANT: Keep this file secure and do not commit to version control!
+          ================================================
+        owner: "{{ app_user }}"
+        group: "{{ app_user }}"
+        mode: '0600'
+      tags: [deploy]
+
+    - name: Display deployment summary
+      ansible.builtin.debug:
+        msg: |
+          ============================================================
+          Deployment Successful! 🎉
+          ============================================================
+
+          Application URLs:
+          {% if domain_name %}
+            Frontend:   {{ 'https' if use_ssl else 'http' }}://{{ domain_name }}:3000
+            API:        {{ 'https' if use_ssl else 'http' }}://{{ domain_name }}:8000
+            API Docs:   {{ 'https' if use_ssl else 'http' }}://{{ domain_name }}:8000/docs
+            Prometheus: {{ 'https' if use_ssl else 'http' }}://{{ domain_name }}:9090
+            Grafana:    {{ 'https' if use_ssl else 'http' }}://{{ domain_name }}:3001
+          {% else %}
+            Frontend:   http://{{ ansible_host }}:3000
+            API:        http://{{ ansible_host }}:8000
+            API Docs:   http://{{ ansible_host }}:8000/docs
+            Prometheus: http://{{ ansible_host }}:9090
+            Grafana:    http://{{ ansible_host }}:3001
+          {% endif %}
+
+          Grafana Login:
+            Username: admin
+            Password: {{ grafana_password }}
+
+          Credentials saved to: {{ app_directory }}/CREDENTIALS.txt
+
+          Useful commands:
+            View logs:    docker-compose -f docker-compose.prod.yml logs -f
+            Restart:      docker-compose -f docker-compose.prod.yml restart
+            Stop:         docker-compose -f docker-compose.prod.yml down
+
+          ============================================================
+      tags: [always]

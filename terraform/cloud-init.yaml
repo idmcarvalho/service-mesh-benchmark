@@ -1,0 +1,70 @@
+#cloud-config
+# Cloud-init configuration for initial instance setup
+
+hostname: ${hostname}
+
+# Packages to install on first boot
+packages:
+  - curl
+  - wget
+  - git
+  - vim
+  - htop
+  - net-tools
+  - ca-certificates
+  - gnupg
+  - lsb-release
+
+# Run commands on first boot
+runcmd:
+  # Update package lists
+  - apt-get update
+
+  # Set timezone to UTC
+  - timedatectl set-timezone UTC
+
+  # Increase file descriptor limits
+  - echo "* soft nofile 65536" >> /etc/security/limits.conf
+  - echo "* hard nofile 65536" >> /etc/security/limits.conf
+  - echo "* soft nproc 4096" >> /etc/security/limits.conf
+  - echo "* hard nproc 4096" >> /etc/security/limits.conf
+
+  # Kernel networking optimizations
+  - echo "net.core.somaxconn = 1024" >> /etc/sysctl.conf
+  - echo "net.ipv4.tcp_max_syn_backlog = 2048" >> /etc/sysctl.conf
+  - echo "net.ipv4.ip_local_port_range = 1024 65535" >> /etc/sysctl.conf
+  - echo "net.ipv4.tcp_tw_reuse = 1" >> /etc/sysctl.conf
+  - echo "net.ipv4.tcp_fin_timeout = 15" >> /etc/sysctl.conf
+  - echo "net.core.netdev_max_backlog = 2048" >> /etc/sysctl.conf
+  - echo "kernel.unprivileged_bpf_disabled = 0" >> /etc/sysctl.conf
+  # eBPF JIT compilation optimizations (critical for performance)
+  - echo "net.core.bpf_jit_enable = 1" >> /etc/sysctl.conf
+  - echo "net.core.bpf_jit_harden = 0" >> /etc/sysctl.conf
+  - echo "net.core.bpf_jit_kallsyms = 1" >> /etc/sysctl.conf
+  - sysctl -p
+
+  # Configure iptables to allow application ports
+  - iptables -I INPUT -p tcp --dport 22 -j ACCEPT
+  - iptables -I INPUT -p tcp --dport 80 -j ACCEPT
+  - iptables -I INPUT -p tcp --dport 443 -j ACCEPT
+  - iptables -I INPUT -p tcp --dport 3000 -j ACCEPT
+  - iptables -I INPUT -p tcp --dport 8000 -j ACCEPT
+  - iptables -I INPUT -p tcp --dport 9090 -j ACCEPT
+  - iptables -I INPUT -p tcp --dport 3001 -j ACCEPT
+
+  # Save iptables rules
+  - netfilter-persistent save || iptables-save > /etc/iptables/rules.v4
+
+  # Create application directory
+  - mkdir -p /opt/service-mesh-benchmark
+  - chown ubuntu:ubuntu /opt/service-mesh-benchmark
+
+  # Mark cloud-init as complete
+  - touch /var/lib/cloud/instance/cloud-init-complete
+
+# Final message
+final_message: |
+  Cloud-init setup complete!
+  Instance is ready for Ansible provisioning.
+  Uptime: $UPTIME
+  Timestamp: $TIMESTAMP

@@ -1,0 +1,84 @@
+# Oracle Cloud Infrastructure Configuration
+# Copy this file to terraform.tfvars and update with your values
+
+# ============================================================================
+# OCI Authentication
+# ============================================================================
+# Get these values from your OCI console and API key setup
+# Guide: https://docs.oracle.com/en-us/iaas/Content/API/Concepts/apisigningkey.htm
+
+tenancy_ocid     = "ocid1.tenancy.oc1..aaaaaaaa..."
+user_ocid        = "ocid1.user.oc1..aaaaaaaa..."
+fingerprint      = "aa:bb:cc:dd:ee:ff:00:11:22:33:44:55:66:77:88:99"
+private_key_path = "~/.oci/oci_api_key.pem"
+
+# ============================================================================
+# OCI Region and Compartment
+# ============================================================================
+# Region list: https://docs.oracle.com/en-us/iaas/Content/General/Concepts/regions.htm
+# Common free tier regions:
+# - us-ashburn-1 (US East)
+# - us-phoenix-1 (US West)
+# - eu-frankfurt-1 (Europe)
+# - ap-mumbai-1 (Asia Pacific)
+
+region           = "us-ashburn-1"
+compartment_ocid = "ocid1.compartment.oc1..aaaaaaaa..."
+
+# ============================================================================
+# SSH Configuration
+# ============================================================================
+# Generate SSH key pair if you don't have one:
+# ssh-keygen -t rsa -b 4096 -f ~/.ssh/oci_benchmark_key
+
+# Paste the content of your public key (e.g., cat ~/.ssh/oci_benchmark_key.pub)
+ssh_public_key = <<-EOT
+ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQC... your-email@example.com
+EOT
+
+# Path to your private key for Ansible provisioning
+ssh_private_key_path = "~/.ssh/oci_benchmark_key"
+
+# ============================================================================
+# Instance Configuration (Free Tier)
+# ============================================================================
+# Free tier eligible: VM.Standard.E2.1.Micro
+# - 1 OCPU
+# - 1 GB memory
+# - Up to 50 GB boot volume
+
+instance_shape           = "VM.Standard.E2.1.Micro"
+instance_ocpus           = 1
+instance_memory_in_gbs   = 1
+boot_volume_size_in_gbs  = 50
+
+# ============================================================================
+# Network Configuration
+# ============================================================================
+vcn_cidr_block    = "10.0.0.0/16"
+subnet_cidr_block = "10.0.1.0/24"
+
+# Security: Restrict SSH access to your IP for better security
+# Find your IP: curl ifconfig.me
+# Example: allowed_ssh_cidr = "203.0.113.0/32"
+allowed_ssh_cidr  = "0.0.0.0/0"  # Change this in production!
+allowed_http_cidr = "0.0.0.0/0"
+
+# ============================================================================
+# Application Configuration
+# ============================================================================
+environment  = "prod"
+project_name = "service-mesh-benchmark"
+
+# Optional: Domain name (leave empty if using IP address)
+domain_name = ""  # e.g., "benchmark.example.com"
+
+# ============================================================================
+# Resource Tags
+# ============================================================================
+freeform_tags = {
+  Project     = "ServiceMeshBenchmark"
+  ManagedBy   = "Terraform"
+  Environment = "Production"
+  CostCenter  = "Engineering"
+}

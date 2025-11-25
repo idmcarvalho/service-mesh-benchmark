@@ -35,6 +35,62 @@ ls /sys/kernel/btf/vmlinux  # Should exist
 df -h /usr /home  # Should have 5GB+ free
 ```
 
+### Runtime Requirements
+
+The eBPF probes require the following at runtime:
+
+- **Linux kernel >= 5.10** (for CO-RE support)
+- **BTF enabled kernel** (`/sys/kernel/btf/vmlinux` must exist)
+- **eBPF JIT compilation enabled** (for optimal performance)
+- **CAP_BPF** and **CAP_NET_ADMIN** capabilities (or run as root)
+
+#### Verify and Enable eBPF JIT Compilation
+
+**CRITICAL**: eBPF JIT compilation provides 10-100x performance improvement over the interpreter. It must be enabled for production use.
+
+```bash
+# Check if JIT is enabled
+cat /proc/sys/net/core/bpf_jit_enable
+# Should return: 1 (enabled) or 2 (enabled with debug)
+# If it returns 0, JIT is DISABLED - this will severely impact performance!
+
+# Enable JIT (temporary - lost on reboot)
+sudo sysctl -w net.core.bpf_jit_enable=1
+
+# Disable JIT hardening for maximum performance (trusted environments only)
+sudo sysctl -w net.core.bpf_jit_harden=0
+
+# Enable JIT symbols for debugging/profiling (optional)
+sudo sysctl -w net.core.bpf_jit_kallsyms=1
+
+# Make changes persistent across reboots
+cat <<EOF | sudo tee -a /etc/sysctl.conf
+# eBPF JIT compilation (critical for performance)
+net.core.bpf_jit_enable = 1
+net.core.bpf_jit_harden = 0
+net.core.bpf_jit_kallsyms = 1
+EOF
+
+# Apply changes
+sudo sysctl -p
+```
+
+#### Use the JIT Verification Tool
+
+After installation, you can use the included verification script:
+
+```bash
+cd src/probes/latency
+./verify-jit.sh
+```
+
+This will check:
+- JIT enable status
+- JIT hardening configuration
+- JIT memory limits
+- Kernel version compatibility
+- BTF support
+
 ## 🦀 Step 1: Install Rust
 
 ### Install Rust via rustup
