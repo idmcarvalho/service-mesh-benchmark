@@ -35,7 +35,24 @@ pub static EVENTS: PerfEventArray<LatencyEvent> =
 /// Value: u64 counter
 #[map]
 pub static STATS: HashMap<u32, u64> =
-    HashMap::with_max_entries(16, 0);
+    HashMap::with_max_entries(32, 0);
+
+/// Perf event array for packet drop events
+///
+/// Events are written when packets are dropped in the kernel.
+#[map]
+pub static PACKET_DROPS: PerfEventArray<PacketDropEvent> =
+    PerfEventArray::new(0);
+
+/// Map to track connection states
+///
+/// Key: ConnectionKey (4-tuple)
+/// Value: ConnectionState
+///
+/// Tracks the lifecycle of TCP connections.
+#[map]
+pub static CONNECTION_STATES: HashMap<ConnectionKey, ConnectionState> =
+    HashMap::with_max_entries(MAX_CONNECTIONS, 0);
 
 // Stat IDs for STATS map
 pub const STAT_TOTAL_EVENTS: u32 = 0;
@@ -45,3 +62,7 @@ pub const STAT_CLEANUP_EVENTS: u32 = 3;
 pub const STAT_DROPPED_EVENTS: u32 = 4;
 pub const STAT_INVALID_SOCKETS: u32 = 5;
 pub const STAT_INVALID_LATENCY: u32 = 6;
+pub const STAT_PACKET_DROPS: u32 = 7;
+pub const STAT_STATE_TRANSITIONS: u32 = 8;
+pub const STAT_CONNECTIONS_OPENED: u32 = 9;
+pub const STAT_CONNECTIONS_CLOSED: u32 = 10;

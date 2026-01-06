@@ -41,10 +41,14 @@ mod maps;
 mod socket_parser;
 
 // Re-export kprobe functions so they're visible to the loader
-pub use handlers::{tcp_cleanup_rbuf, tcp_recvmsg, tcp_sendmsg};
+pub use handlers::{
+    tcp_cleanup_rbuf, tcp_recvmsg, tcp_sendmsg,
+    tcp_drop, kfree_skb_tracepoint,
+    tcp_set_state, tcp_v4_connect, tcp_close,
+};
 
 // Re-export maps for verification
-pub use maps::{CONNECTION_START, EVENTS, STATS};
+pub use maps::{CONNECTION_START, EVENTS, STATS, PACKET_DROPS, CONNECTION_STATES};
 
 #[cfg(not(test))]
 #[panic_handler]

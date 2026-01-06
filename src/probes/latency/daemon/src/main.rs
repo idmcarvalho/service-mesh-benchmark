@@ -126,6 +126,9 @@ async fn main() -> Result<()> {
     // Attach kprobes
     loader.attach_kprobes()?;
 
+    // Attach tracepoints
+    loader.attach_tracepoints()?;
+
     // Get perf event array
     let perf_array = loader.get_perf_array()?;
 

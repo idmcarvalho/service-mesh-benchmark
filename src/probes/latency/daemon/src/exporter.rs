@@ -137,6 +137,57 @@ impl PrometheusExporter {
         output.push_str(&format!("latency_probe_connections_total {}\n", metrics.connections.len()));
         output.push('\n');
 
+        // Packet drops
+        output.push_str("# HELP latency_probe_packet_drops_total Total packet drops\n");
+        output.push_str("# TYPE latency_probe_packet_drops_total counter\n");
+        output.push_str(&format!("latency_probe_packet_drops_total {}\n", metrics.packet_drops.total_drops));
+        output.push('\n');
+
+        // Packet drops by location
+        output.push_str("# HELP latency_probe_packet_drops_by_location Packet drops by location\n");
+        output.push_str("# TYPE latency_probe_packet_drops_by_location counter\n");
+        for (location, count) in &metrics.packet_drops.drops_by_location {
+            output.push_str(&format!("latency_probe_packet_drops_by_location{{location=\"{}\"}} {}\n", location, count));
+        }
+        output.push('\n');
+
+        // Packet drops by protocol
+        output.push_str("# HELP latency_probe_packet_drops_by_protocol Packet drops by protocol\n");
+        output.push_str("# TYPE latency_probe_packet_drops_by_protocol counter\n");
+        for (protocol, count) in &metrics.packet_drops.drops_by_protocol {
+            output.push_str(&format!("latency_probe_packet_drops_by_protocol{{protocol=\"{}\"}} {}\n", protocol, count));
+        }
+        output.push('\n');
+
+        // Connection states
+        output.push_str("# HELP latency_probe_connections_opened_total Total connections opened\n");
+        output.push_str("# TYPE latency_probe_connections_opened_total counter\n");
+        output.push_str(&format!("latency_probe_connections_opened_total {}\n", metrics.connection_states.total_opened));
+        output.push('\n');
+
+        output.push_str("# HELP latency_probe_connections_closed_total Total connections closed\n");
+        output.push_str("# TYPE latency_probe_connections_closed_total counter\n");
+        output.push_str(&format!("latency_probe_connections_closed_total {}\n", metrics.connection_states.total_closed));
+        output.push('\n');
+
+        output.push_str("# HELP latency_probe_connections_active Active connections\n");
+        output.push_str("# TYPE latency_probe_connections_active gauge\n");
+        output.push_str(&format!("latency_probe_connections_active {}\n", metrics.connection_states.active_connections));
+        output.push('\n');
+
+        output.push_str("# HELP latency_probe_connection_duration_avg_seconds Average connection duration in seconds\n");
+        output.push_str("# TYPE latency_probe_connection_duration_avg_seconds gauge\n");
+        output.push_str(&format!("latency_probe_connection_duration_avg_seconds {}\n", metrics.connection_states.avg_duration_seconds));
+        output.push('\n');
+
+        // Connection states breakdown
+        output.push_str("# HELP latency_probe_connection_states Connection state breakdown\n");
+        output.push_str("# TYPE latency_probe_connection_states counter\n");
+        for (state, count) in &metrics.connection_states.states_breakdown {
+            output.push_str(&format!("latency_probe_connection_states{{state=\"{}\"}} {}\n", state, count));
+        }
+        output.push('\n');
+
         output
     }
 }
@@ -226,6 +277,49 @@ impl InfluxExporter {
             timestamp
         ));
 
+        // Packet drops
+        output.push_str(&format!(
+            "{},type=packet_drops total_drops={}i {}\n",
+            measurement,
+            metrics.packet_drops.total_drops,
+            timestamp
+        ));
+
+        // Packet drops by location
+        for (location, count) in &metrics.packet_drops.drops_by_location {
+            output.push_str(&format!(
+                "{},type=packet_drop_location,location={} count={}i {}\n",
+                measurement, location, count, timestamp
+            ));
+        }
+
+        // Packet drops by protocol
+        for (protocol, count) in &metrics.packet_drops.drops_by_protocol {
+            output.push_str(&format!(
+                "{},type=packet_drop_protocol,protocol={} count={}i {}\n",
+                measurement, protocol, count, timestamp
+            ));
+        }
+
+        // Connection states
+        output.push_str(&format!(
+            "{},type=connection_states total_opened={}i,total_closed={}i,active={}i,avg_duration={} {}\n",
+            measurement,
+            metrics.connection_states.total_opened,
+            metrics.connection_states.total_closed,
+            metrics.connection_states.active_connections,
+            metrics.connection_states.avg_duration_seconds,
+            timestamp
+        ));
+
+        // Connection states breakdown
+        for (state, count) in &metrics.connection_states.states_breakdown {
+            output.push_str(&format!(
+                "{},type=connection_state,state={} count={}i {}\n",
+                measurement, state, count, timestamp
+            ));
+        }
+
         output
     }
 }
@@ -267,6 +361,8 @@ mod tests {
                 p999: 600.0,
             },
             event_type_breakdown: EventTypeBreakdown::default(),
+            packet_drops: PacketDropStats::default(),
+            connection_states: ConnectionStateStats::default(),
         }
     }
 

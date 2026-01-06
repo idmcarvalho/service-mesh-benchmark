@@ -18,6 +18,12 @@ pub struct MetricsCollector {
     event_types: EventTypeBreakdown,
     /// Total number of events processed
     total_events: u64,
+    /// Packet drop tracking
+    packet_drops: PacketDropStats,
+    /// Connection state tracking
+    connection_states: ConnectionStateStats,
+    /// Connection durations for calculating average
+    connection_durations: Vec<f64>,
 }
 
 impl MetricsCollector {
@@ -57,6 +63,81 @@ impl MetricsCollector {
         }
 
         self.total_events += 1;
+    }
+
+    /// Add a packet drop event to the collector
+    ///
+    /// # Arguments
+    ///
+    /// * `event` - Packet drop event from the eBPF program
+    pub fn add_packet_drop(&mut self, event: &kernel::PacketDropEvent) {
+        use probe_common::constants::*;
+
+        self.packet_drops.total_drops += 1;
+
+        // Track by location
+        let location = match event.drop_location {
+            DROP_LOCATION_TC => "tc",
+            DROP_LOCATION_XDP => "xdp",
+            DROP_LOCATION_NETFILTER => "netfilter",
+            DROP_LOCATION_STACK => "stack",
+            DROP_LOCATION_APP => "app",
+            _ => "unknown",
+        };
+        *self.packet_drops.drops_by_location.entry(location.to_string()).or_insert(0) += 1;
+
+        // Track by protocol
+        let protocol = match event.protocol {
+            IPPROTO_TCP => "tcp",
+            IPPROTO_UDP => "udp",
+            IPPROTO_ICMP => "icmp",
+            _ => "other",
+        };
+        *self.packet_drops.drops_by_protocol.entry(protocol.to_string()).or_insert(0) += 1;
+
+        // Track per-connection drops (if connection info is available)
+        if event.key.saddr != 0 || event.key.daddr != 0 {
+            let conn_str = connection_key_to_string(&event.key);
+            *self.packet_drops.connections.entry(conn_str).or_insert(0) += 1;
+        }
+    }
+
+    /// Add a connection state event to the collector
+    ///
+    /// # Arguments
+    ///
+    /// * `event` - Connection state from the eBPF program
+    pub fn add_connection_state(&mut self, event: &kernel::ConnectionState) {
+        use probe_common::constants::*;
+
+        // Track state transitions
+        let state_name = match event.state {
+            CONN_STATE_CONNECTING => "connecting",
+            CONN_STATE_ESTABLISHED => "established",
+            CONN_STATE_CLOSING => "closing",
+            CONN_STATE_CLOSED => "closed",
+            _ => "unknown",
+        };
+        *self.connection_states.states_breakdown.entry(state_name.to_string()).or_insert(0) += 1;
+
+        // Track opened/closed
+        match event.state {
+            CONN_STATE_ESTABLISHED => {
+                if event.start_time_ns > 0 {
+                    self.connection_states.total_opened += 1;
+                }
+            }
+            CONN_STATE_CLOSED => {
+                self.connection_states.total_closed += 1;
+                // Calculate duration if we have both timestamps
+                if event.close_time_ns > event.start_time_ns && event.start_time_ns > 0 {
+                    let duration_ns = event.close_time_ns - event.start_time_ns;
+                    let duration_secs = duration_ns as f64 / 1_000_000_000.0;
+                    self.connection_durations.push(duration_secs);
+                }
+            }
+            _ => {}
+        }
     }
 
     /// Generate aggregated metrics
@@ -107,6 +188,17 @@ impl MetricsCollector {
             })
             .collect();
 
+        // Calculate average connection duration
+        let avg_duration_seconds = if !self.connection_durations.is_empty() {
+            self.connection_durations.iter().sum::<f64>() / self.connection_durations.len() as f64
+        } else {
+            0.0
+        };
+
+        let mut connection_states = self.connection_states.clone();
+        connection_states.avg_duration_seconds = avg_duration_seconds;
+        connection_states.active_connections = self.connection_latencies.len() as u64;
+
         LatencyMetrics {
             timestamp: chrono::Utc::now().to_rfc3339(),
             duration_seconds: elapsed_secs,
@@ -115,6 +207,8 @@ impl MetricsCollector {
             histogram: self.histogram.clone(),
             percentiles,
             event_type_breakdown: self.event_types.clone(),
+            packet_drops: self.packet_drops.clone(),
+            connection_states,
         }
     }
 

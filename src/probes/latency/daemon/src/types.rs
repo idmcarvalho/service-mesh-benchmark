@@ -46,6 +46,10 @@ pub struct LatencyMetrics {
     pub percentiles: Percentiles,
     /// Breakdown by event type
     pub event_type_breakdown: EventTypeBreakdown,
+    /// Packet drop statistics
+    pub packet_drops: PacketDropStats,
+    /// Connection state statistics
+    pub connection_states: ConnectionStateStats,
 }
 
 /// Metrics for a single connection
@@ -144,6 +148,34 @@ pub struct EventTypeBreakdown {
     pub tcp_recvmsg: u64,
     /// Count of tcp_cleanup_rbuf events
     pub tcp_cleanup_rbuf: u64,
+}
+
+/// Packet drop statistics
+#[derive(Serialize, Deserialize, Debug, Default, Clone)]
+pub struct PacketDropStats {
+    /// Total packet drops
+    pub total_drops: u64,
+    /// Drops by location
+    pub drops_by_location: HashMap<String, u64>,
+    /// Drops by protocol
+    pub drops_by_protocol: HashMap<String, u64>,
+    /// Per-connection drop counts
+    pub connections: HashMap<String, u64>,
+}
+
+/// Connection state statistics
+#[derive(Serialize, Deserialize, Debug, Default, Clone)]
+pub struct ConnectionStateStats {
+    /// Total connections opened
+    pub total_opened: u64,
+    /// Total connections closed
+    pub total_closed: u64,
+    /// Active connections (currently in state map)
+    pub active_connections: u64,
+    /// Average connection duration in seconds
+    pub avg_duration_seconds: f64,
+    /// Connection states breakdown
+    pub states_breakdown: HashMap<String, u64>,
 }
 
 /// Calculate percentiles from a sorted vector of samples

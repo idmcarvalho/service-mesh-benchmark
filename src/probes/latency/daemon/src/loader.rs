@@ -5,13 +5,11 @@
 use anyhow::{Context, Result};
 use aya::{
     maps::perf::AsyncPerfEventArray,
-    programs::KProbe,
+    programs::{KProbe, TracePoint},
     Bpf,
 };
 use log::{info, warn};
 use std::path::PathBuf;
-
-use crate::types::LatencyEvent;
 
 /// eBPF program loader and manager
 pub struct ProbeLoader {
@@ -76,12 +74,16 @@ impl ProbeLoader {
     /// - tcp_sendmsg
     /// - tcp_recvmsg
     /// - tcp_cleanup_rbuf
+    /// - tcp_drop
+    /// - tcp_set_state
+    /// - tcp_v4_connect
+    /// - tcp_close
     ///
     /// # Returns
     ///
     /// Result indicating success or failure
     pub fn attach_kprobes(&mut self) -> Result<()> {
-        info!("Attaching kprobes...");
+        info!("Attaching kprobes for latency tracking...");
 
         // Attach tcp_sendmsg
         let program: &mut KProbe = self
@@ -122,12 +124,99 @@ impl ProbeLoader {
             .context("Failed to attach tcp_cleanup_rbuf kprobe")?;
         info!("  ✓ Attached to tcp_cleanup_rbuf");
 
+        info!("Attaching kprobes for packet drop tracking...");
+
+        // Attach tcp_drop (may not exist on all kernels, so warn instead of error)
+        match self.ebpf.program_mut("tcp_drop") {
+            Some(prog) => {
+                let program: &mut KProbe = prog
+                    .try_into()
+                    .context("Failed to get tcp_drop as KProbe")?;
+                program.load().context("Failed to load tcp_drop")?;
+                match program.attach("tcp_drop", 0) {
+                    Ok(_) => info!("  ✓ Attached to tcp_drop"),
+                    Err(e) => warn!("  ⚠ Failed to attach tcp_drop (not available on this kernel): {}", e),
+                }
+            }
+            None => warn!("  ⚠ tcp_drop program not found (optional)"),
+        }
+
+        info!("Attaching kprobes for connection state tracking...");
+
+        // Attach tcp_set_state
+        let program: &mut KProbe = self
+            .ebpf
+            .program_mut("tcp_set_state")
+            .context("tcp_set_state program not found in eBPF object")?
+            .try_into()
+            .context("Failed to get tcp_set_state as KProbe")?;
+        program.load().context("Failed to load tcp_set_state")?;
+        program
+            .attach("tcp_set_state", 0)
+            .context("Failed to attach tcp_set_state kprobe")?;
+        info!("  ✓ Attached to tcp_set_state");
+
+        // Attach tcp_v4_connect
+        let program: &mut KProbe = self
+            .ebpf
+            .program_mut("tcp_v4_connect")
+            .context("tcp_v4_connect program not found in eBPF object")?
+            .try_into()
+            .context("Failed to get tcp_v4_connect as KProbe")?;
+        program.load().context("Failed to load tcp_v4_connect")?;
+        program
+            .attach("tcp_v4_connect", 0)
+            .context("Failed to attach tcp_v4_connect kprobe")?;
+        info!("  ✓ Attached to tcp_v4_connect");
+
+        // Attach tcp_close
+        let program: &mut KProbe = self
+            .ebpf
+            .program_mut("tcp_close")
+            .context("tcp_close program not found in eBPF object")?
+            .try_into()
+            .context("Failed to get tcp_close as KProbe")?;
+        program.load().context("Failed to load tcp_close")?;
+        program
+            .attach("tcp_close", 0)
+            .context("Failed to attach tcp_close kprobe")?;
+        info!("  ✓ Attached to tcp_close");
+
         info!("All kprobes attached successfully");
 
         Ok(())
     }
 
-    /// Get the perf event array for reading events
+    /// Attach tracepoints for packet drop tracking
+    ///
+    /// Attaches to:
+    /// - skb:kfree_skb
+    ///
+    /// # Returns
+    ///
+    /// Result indicating success or failure
+    pub fn attach_tracepoints(&mut self) -> Result<()> {
+        info!("Attaching tracepoints...");
+
+        // Attach kfree_skb tracepoint (may not exist on all kernels)
+        match self.ebpf.program_mut("kfree_skb_tracepoint") {
+            Some(prog) => {
+                let program: &mut TracePoint = prog
+                    .try_into()
+                    .context("Failed to get kfree_skb_tracepoint as TracePoint")?;
+                program.load().context("Failed to load kfree_skb_tracepoint")?;
+                match program.attach("skb", "kfree_skb") {
+                    Ok(_) => info!("  ✓ Attached to skb:kfree_skb tracepoint"),
+                    Err(e) => warn!("  ⚠ Failed to attach skb:kfree_skb tracepoint (not available on this kernel): {}", e),
+                }
+            }
+            None => warn!("  ⚠ kfree_skb_tracepoint program not found (optional)"),
+        }
+
+        Ok(())
+    }
+
+    /// Get the perf event array for reading latency events
     ///
     /// # Returns
     ///
@@ -140,6 +229,21 @@ impl ProbeLoader {
 
         AsyncPerfEventArray::try_from(map)
             .context("Failed to create AsyncPerfEventArray from EVENTS map")
+    }
+
+    /// Get the perf event array for reading packet drop events
+    ///
+    /// # Returns
+    ///
+    /// AsyncPerfEventArray for reading packet drop events from the kernel
+    pub fn get_packet_drops_array(&mut self) -> Result<AsyncPerfEventArray<aya::maps::MapData>> {
+        let map = self
+            .ebpf
+            .take_map("PACKET_DROPS")
+            .context("PACKET_DROPS map not found in eBPF object")?;
+
+        AsyncPerfEventArray::try_from(map)
+            .context("Failed to create AsyncPerfEventArray from PACKET_DROPS map")
     }
 
     /// Get reference to the eBPF object
