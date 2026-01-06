@@ -16,15 +16,14 @@ Comprehensive testing documentation for the service mesh benchmark framework.
 
 ## Overview
 
-The testing framework provides comprehensive validation across 7 phases:
+The testing framework provides comprehensive validation across 6 phases:
 
 1. **Phase 1**: Pre-deployment validation
 2. **Phase 2**: Infrastructure verification
 3. **Phase 3**: Baseline performance testing
-4. **Phase 4**: Service mesh testing (Istio/Cilium/Linkerd)
-5. **Phase 5**: Cilium-specific tests
-6. **Phase 6**: Comparative analysis
-7. **Phase 7**: Stress and edge case testing
+4. **Phase 4**: Service mesh testing (Istio/Cilium/Linkerd/Consul)
+5. **Phase 5**: Comparative analysis
+6. **Phase 6**: Stress and edge case testing
 
 ## Test Framework
 
@@ -48,8 +47,8 @@ tests/
 ├── test_phase2_infrastructure.py  # Infrastructure tests
 ├── test_phase3_baseline.py        # Baseline performance tests
 ├── test_phase4_servicemesh.py     # Service mesh tests
-├── test_phase6_comparative.py     # Comparative analysis
-└── test_phase7_stress.py          # Stress tests
+├── test_phase5_comparative.py     # Comparative analysis
+└── test_phase6_stress.py          # Stress tests
 ```
 
 ## Testing Phases
@@ -172,7 +171,7 @@ make test-mesh-linkerd
 - Data plane CPU/Memory
 - Total overhead vs baseline
 
-### Phase 6: Comparative Analysis
+### Phase 5: Comparative Analysis
 
 **Purpose**: Compare performance across all tested meshes
 **Duration**: < 5 minutes
@@ -199,7 +198,7 @@ make test-compare
 - Best performer summary
 - JSON reports in `benchmarks/results/`
 
-### Phase 7: Stress and Edge Case Testing
+### Phase 6: Stress and Edge Case Testing
 
 **Purpose**: Verify behavior under extreme conditions
 **Duration**: 30-60 minutes
@@ -315,8 +314,8 @@ make test-infra         # Phase 2: Infrastructure
 make test-baseline      # Phase 3: Baseline
 make test-mesh-istio    # Phase 4: Istio
 make test-mesh-cilium   # Phase 4: Cilium
-make test-compare       # Phase 6: Comparative
-make test-stress        # Phase 7: Stress tests
+make test-compare       # Phase 5: Comparative
+make test-stress        # Phase 6: Stress tests
 ```
 
 ### Combined Tests

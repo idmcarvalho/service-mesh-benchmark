@@ -15,7 +15,7 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field, ValidationError
 
-from tests.models import BenchmarkResult, MeshType
+from src.tests.models import BenchmarkResult, MeshType
 
 
 class WrkMetrics(BaseModel):

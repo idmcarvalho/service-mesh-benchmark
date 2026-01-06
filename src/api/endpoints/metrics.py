@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, HTTPException, Query, status
 
 from src.api.config import RESULTS_DIR
-from tests.models import MeshType
+from src.tests.models import MeshType
 
 router = APIRouter(prefix="/metrics", tags=["Metrics"])
 

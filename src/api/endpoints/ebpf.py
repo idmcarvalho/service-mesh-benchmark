@@ -17,7 +17,7 @@ router = APIRouter(prefix="/ebpf", tags=["eBPF"])
 async def run_ebpf_probe(job_id: str, request: eBPFProbeRequest) -> None:
     """Run eBPF latency probe in the background."""
     probe_path = (
-        EBPF_PROBE_DIR / "latency-probe-userspace" / "target" / "release" / "latency-probe"
+        EBPF_PROBE_DIR / "daemon" / "target" / "release" / "latency-probe"
     )
 
     if not probe_path.exists():
@@ -86,13 +86,13 @@ async def start_ebpf_probe(
 ) -> eBPFProbeResponse:
     """Start eBPF latency probe."""
     probe_path = (
-        EBPF_PROBE_DIR / "latency-probe-userspace" / "target" / "release" / "latency-probe"
+        EBPF_PROBE_DIR / "daemon" / "target" / "release" / "latency-probe"
     )
 
     if not probe_path.exists():
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="eBPF probe not built. Run ./build.sh in ebpf-probes/latency-probe",
+            detail="eBPF probe not built. Run: cd src/probes && cargo build --release",
         )
 
     # Generate job ID
@@ -126,7 +126,7 @@ async def start_ebpf_probe(
 async def ebpf_probe_status() -> Dict[str, Any]:
     """Check eBPF probe availability and status."""
     probe_path = (
-        EBPF_PROBE_DIR / "latency-probe-userspace" / "target" / "release" / "latency-probe"
+        EBPF_PROBE_DIR / "daemon" / "target" / "release" / "latency-probe"
     )
 
     available = probe_path.exists()
@@ -141,7 +141,7 @@ async def ebpf_probe_status() -> Dict[str, Any]:
         "available": available,
         "probe_path": str(probe_path),
         "running_probes": len(running_probes),
-        "build_instructions": "Run ./build.sh in ebpf-probes/latency-probe"
+        "build_instructions": "Run: cd src/probes && cargo build --release"
         if not available
         else None,
     }

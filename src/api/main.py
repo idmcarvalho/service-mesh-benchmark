@@ -164,6 +164,9 @@ async def startup_event() -> None:
     print(f"CORS Origins: {settings.cors_origins}")
     print(f"Security Headers: {'Enabled' if settings.security_headers_enabled else 'Disabled'}")
     print(f"Log Level: {settings.log_level}")
+    print(f"Database: {'Enabled' if settings.database_enabled else 'Disabled (using in-memory)'}")
+    print(f"Redis: {'Enabled' if settings.redis_enabled else 'Disabled'}")
+    print(f"Persistence: {'Enabled (JSON files)' if settings.persistence_enabled else 'Disabled'}")
 
     # Validate production configuration
     warnings = settings.validate_production_config()
@@ -177,6 +180,27 @@ async def startup_event() -> None:
     # Ensure results directory exists
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     print(f"✓ Results directory: {RESULTS_DIR}")
+
+    # Load persisted jobs if persistence is enabled
+    if settings.persistence_enabled:
+        try:
+            from src.api.persistence import load_jobs_from_persistence
+            from src.api.state import running_jobs
+
+            persisted_jobs = await load_jobs_from_persistence()
+
+            # Only load completed/failed jobs for history
+            # Don't restore "running" jobs as they're stale
+            historical_jobs = {
+                job_id: job_data
+                for job_id, job_data in persisted_jobs.items()
+                if job_data.get("status") in ["completed", "failed"]
+            }
+
+            running_jobs.update(historical_jobs)
+            print(f"✓ Loaded {len(historical_jobs)} historical jobs from persistence")
+        except Exception as e:
+            print(f"⚠ Failed to load persisted jobs: {e}")
 
     # Try to load Kubernetes config
     try:

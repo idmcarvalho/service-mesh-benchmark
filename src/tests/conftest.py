@@ -10,14 +10,15 @@ from typing import Any, Callable, Dict, Optional
 import pytest
 from kubernetes import client, config as k8s_config
 
+from src.common.paths import paths
 from src.tests.models import MeshType, TestConfig
 
-# Test configuration
-PROJECT_ROOT = Path(__file__).parent.parent
-TERRAFORM_DIR = PROJECT_ROOT / "terraform" / "oracle-cloud"
-WORKLOADS_DIR = PROJECT_ROOT / "kubernetes" / "workloads"
-BENCHMARKS_DIR = PROJECT_ROOT / "benchmarks" / "scripts"
-RESULTS_DIR = PROJECT_ROOT / "benchmarks" / "results"
+# Test configuration - use centralized paths
+PROJECT_ROOT = paths.root
+TERRAFORM_DIR = paths.terraform_oracle
+WORKLOADS_DIR = paths.kubernetes_workloads
+BENCHMARKS_DIR = paths.script_runners
+RESULTS_DIR = paths.results
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
@@ -60,9 +61,13 @@ def mesh_type(request: pytest.FixtureRequest) -> str:
 
 
 @pytest.fixture(scope="session")
-def test_config(request: pytest.FixtureRequest) -> TestConfig:
-    """Global test configuration using Pydantic model."""
-    return TestConfig(
+def test_config(request: pytest.FixtureRequest) -> Dict[str, Any]:
+    """Global test configuration as dictionary.
+
+    Returns dict instead of Pydantic model for easier access in tests.
+    Pydantic model used for validation, then converted to dict.
+    """
+    config_model = TestConfig(
         mesh_type=MeshType(request.config.getoption("--mesh-type")),
         skip_infra=bool(request.config.getoption("--skip-infra")),
         kubeconfig=Path(request.config.getoption("--kubeconfig")).expanduser(),
@@ -74,13 +79,14 @@ def test_config(request: pytest.FixtureRequest) -> TestConfig:
         benchmarks_dir=BENCHMARKS_DIR,
         results_dir=RESULTS_DIR,
     )
+    return config_model.model_dump()
 
 
 @pytest.fixture(scope="session")
-def k8s_client(test_config: TestConfig) -> Dict[str, Any]:
+def k8s_client(test_config: Dict[str, Any]) -> Dict[str, Any]:
     """Kubernetes API client."""
     try:
-        k8s_config.load_kube_config(config_file=str(test_config.kubeconfig))
+        k8s_config.load_kube_config(config_file=str(test_config["kubeconfig"]))
         return {
             "core": client.CoreV1Api(),
             "apps": client.AppsV1Api(),
@@ -92,12 +98,12 @@ def k8s_client(test_config: TestConfig) -> Dict[str, Any]:
 
 
 @pytest.fixture(scope="session")
-def terraform_outputs(test_config: TestConfig) -> Dict[str, Any]:
+def terraform_outputs(test_config: Dict[str, Any]) -> Dict[str, Any]:
     """Get Terraform outputs."""
     try:
         result = subprocess.run(
             ["terraform", "output", "-json"],
-            cwd=test_config.terraform_dir,
+            cwd=test_config["terraform_dir"],
             capture_output=True,
             text=True,
             check=True,

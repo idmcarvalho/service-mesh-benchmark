@@ -1,15 +1,15 @@
 """API configuration and global settings."""
 
-from pathlib import Path
 from typing import Dict
 
 from src.api.settings import settings
+from src.common.paths import paths
 
-# Project paths
-PROJECT_ROOT = Path(__file__).parent.parent
-BENCHMARKS_DIR = PROJECT_ROOT / "benchmarks" / "scripts"
-RESULTS_DIR = PROJECT_ROOT / "benchmarks" / "results"
-EBPF_PROBE_DIR = PROJECT_ROOT / "ebpf-probes" / "latency-probe"
+# Import paths from centralized configuration
+PROJECT_ROOT = paths.root
+BENCHMARKS_DIR = paths.script_runners
+RESULTS_DIR = paths.results
+EBPF_PROBE_DIR = paths.ebpf_latency
 
 # Benchmark script mapping
 BENCHMARK_SCRIPTS = {
@@ -28,4 +28,4 @@ MESH_COMPONENTS = {
 }
 
 # Initialize results directory
-RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+paths.ensure_results_dir()

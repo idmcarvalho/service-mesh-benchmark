@@ -5,7 +5,7 @@ from typing import Any, Dict, Optional
 
 from pydantic import BaseModel, Field
 
-from tests.models import MeshType
+from src.tests.models import MeshType
 
 
 # ============================================================================

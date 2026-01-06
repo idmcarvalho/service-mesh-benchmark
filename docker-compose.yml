@@ -1,1 +1,86 @@
-config/local/docker-compose.yml
+version: '3.8'
+
+# Simplified Docker Compose - Easy to Run
+# This configuration provides the minimal setup to get started quickly.
+# For full stack with PostgreSQL, Redis, Prometheus, and Grafana, use docker-compose.full.yml
+
+services:
+  # FastAPI Application
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: service-mesh-benchmark-api
+    ports:
+      - "8000:8000"
+    environment:
+      DEBUG: "false"
+      API_HOST: 0.0.0.0
+      API_PORT: 8000
+      ALLOWED_ORIGINS: "http://localhost:3000,http://localhost:8000,http://localhost:8080"
+      LOG_LEVEL: "INFO"
+      # Database disabled by default (using in-memory state)
+      # REDIS_ENABLED: "false"
+    volumes:
+      # Mount results directory for benchmark outputs
+      - ./workloads/scripts/results:/app/workloads/scripts/results
+      # Mount kubeconfig for Kubernetes access (read-only)
+      - ${HOME}/.kube:/home/benchmark/.kube:ro
+      # Mount BPF filesystem for eBPF probes (optional - requires Linux kernel 5.8+)
+      - /sys/fs/bpf:/sys/fs/bpf:rw
+    # Add capabilities for eBPF probes (optional - comment out if not using eBPF)
+    cap_add:
+      - SYS_ADMIN        # Required for eBPF operations
+      - CAP_BPF          # BPF operations (kernel 5.8+)
+      - CAP_PERFMON      # Performance monitoring
+      - NET_ADMIN        # Network operations for probes
+    # Allow access to debug filesystem
+    security_opt:
+      - apparmor:unconfined
+    networks:
+      - benchmark-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Svelte Frontend (Optional - comment out if not needed)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: service-mesh-benchmark-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      VITE_API_URL: "http://localhost:8000"
+      NODE_ENV: "production"
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - benchmark-network
+    restart: unless-stopped
+
+networks:
+  benchmark-network:
+    driver: bridge
+
+# Note: This simplified setup uses in-memory job state.
+# Jobs will be lost on API restart but results are saved to files.
+#
+# To enable full persistence and monitoring, use:
+#   docker-compose -f docker-compose.full.yml up
+#
+# Quick Start:
+#   1. Ensure you have a Kubernetes cluster accessible
+#   2. Run: docker-compose up -d
+#   3. Access API docs at: http://localhost:8000/docs
+#   4. Access frontend at: http://localhost:3000
+#   5. Run a test benchmark:
+#      curl -X POST http://localhost:8000/benchmarks/start \
+#        -H "Content-Type: application/json" \
+#        -d '{"test_type":"http","mesh_type":"baseline","namespace":"default","duration":60,"concurrent_connections":100,"service_url":"http://my-service.default.svc.cluster.local"}'

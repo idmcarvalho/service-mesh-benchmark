@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException, status
 from kubernetes import client, config as k8s_config
 
 from src.api.config import MESH_COMPONENTS
-from tests.models import MeshType
+from src.tests.models import MeshType
 
 router = APIRouter(prefix="/kubernetes", tags=["Kubernetes"])
 

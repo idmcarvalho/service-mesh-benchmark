@@ -80,6 +80,19 @@ async def run_benchmark_script(
     finally:
         await update_job(job_id, {"completed_at": datetime.utcnow()})
 
+        # Persist job to JSON if persistence is enabled
+        from src.api.settings import settings
+
+        if settings.persistence_enabled:
+            try:
+                from src.api.persistence import sync_job_to_persistence
+
+                job = await get_job(job_id)
+                if job:
+                    await sync_job_to_persistence(job_id, job)
+            except Exception as e:
+                print(f"Warning: Failed to persist job {job_id}: {e}")
+
 
 @router.post("/start", response_model=BenchmarkResponse)
 async def start_benchmark(

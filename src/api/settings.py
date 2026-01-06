@@ -11,21 +11,32 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
 
-    # Database configuration
-    database_url: str = Field(
-        default="postgresql://benchmark:benchmark@localhost:5432/service_mesh_benchmark",
-        description="Database connection URL (PostgreSQL)",
+    # Database configuration (OPTIONAL - uses in-memory by default)
+    database_url: Optional[str] = Field(
+        default=None,
+        description="Database connection URL (PostgreSQL) - Optional, uses in-memory state if not provided",
     )
 
-    # Redis configuration
-    redis_url: str = Field(
-        default="redis://localhost:6379/0",
-        description="Redis connection URL for job queue",
+    database_enabled: bool = Field(
+        default=False,
+        description="Enable database persistence (requires database_url)",
+    )
+
+    # Redis configuration (OPTIONAL - not required for basic operation)
+    redis_url: Optional[str] = Field(
+        default=None,
+        description="Redis connection URL for job queue - Optional",
     )
 
     redis_enabled: bool = Field(
         default=False,
-        description="Enable Redis for job queuing",
+        description="Enable Redis for job queuing (requires redis_url)",
+    )
+
+    # Job persistence configuration
+    persistence_enabled: bool = Field(
+        default=True,
+        description="Enable JSON file-based job persistence (lightweight alternative to database)",
     )
 
     # API Configuration

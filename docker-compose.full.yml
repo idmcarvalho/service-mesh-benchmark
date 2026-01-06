@@ -53,13 +53,16 @@ services:
       DATABASE_URL: postgresql://benchmark:${POSTGRES_PASSWORD:-changeme_in_production}@postgres:5432/service_mesh_benchmark
       REDIS_URL: redis://:${REDIS_PASSWORD:-changeme_in_production}@redis:6379/0
       REDIS_ENABLED: "true"
+      DATABASE_ENABLED: "true"
       DEBUG: "false"
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000}
       API_HOST: 0.0.0.0
       API_PORT: 8000
     volumes:
-      - ./benchmarks/results:/app/benchmarks/results
-      - ~/.kube:/root/.kube:ro
+      - ./workloads/scripts/results:/app/workloads/scripts/results
+      - ${HOME}/.kube:/home/benchmark/.kube:ro
+      # Mount BPF filesystem for eBPF probes
+      - /sys/fs/bpf:/sys/fs/bpf:rw
     depends_on:
       postgres:
         condition: service_healthy
@@ -67,10 +70,15 @@ services:
         condition: service_healthy
     networks:
       - benchmark-network
-    privileged: true
+    # Add capabilities for eBPF probes and benchmarking
     cap_add:
-      - SYS_ADMIN
-      - NET_ADMIN
+      - SYS_ADMIN        # Required for eBPF operations
+      - CAP_BPF          # BPF operations (kernel 5.8+)
+      - CAP_PERFMON      # Performance monitoring
+      - NET_ADMIN        # Network operations
+    # Allow access to debug filesystem
+    security_opt:
+      - apparmor:unconfined
     restart: unless-stopped
 
   # Svelte Frontend
