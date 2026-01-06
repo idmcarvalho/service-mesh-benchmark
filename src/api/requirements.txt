@@ -3,15 +3,6 @@ fastapi>=0.115.0
 uvicorn[standard]>=0.30.0
 python-multipart>=0.0.9
 
-# Database
-sqlalchemy>=2.0.0
-psycopg2-binary>=2.9.9
-alembic>=1.13.0
-
-# Redis and job queue
-redis>=5.0.0
-celery>=5.3.0
-
 # Kubernetes client
 kubernetes>=29.0.0
 
