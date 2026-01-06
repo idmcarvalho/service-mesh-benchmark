@@ -65,21 +65,144 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install pip-audit
-        run: pip install pip-audit
+      - name: Install Poetry
+        uses: snok/install-poetry@v1
+        with:
+          version: 1.7.1
+          virtualenvs-create: false
 
-      - name: Scan Python dependencies
+      - name: Export Poetry dependencies to requirements.txt
         run: |
-          if [ -f "requirements.txt" ]; then
-            pip-audit -r requirements.txt --format json --output pip-audit-results.json || true
+          echo "Exporting Poetry dependencies for scanning..."
+          poetry export -f requirements.txt --output requirements-all.txt --with test,dev --without-hashes || true
+          poetry export -f requirements.txt --output requirements-main.txt --without-hashes || true
+
+      - name: Install security scanners
+        run: |
+          pip install pip-audit
+          pip install safety
+
+      - name: Scan all dependencies with pip-audit
+        run: |
+          if [ -f "poetry.lock" ]; then
+            echo "Scanning poetry.lock with pip-audit..."
+            pip-audit --requirement requirements-all.txt --format json --output pip-audit-all.json --desc on || true
+            pip-audit --requirement requirements-all.txt --format markdown --output pip-audit-all.md --desc on || true
+          fi
+        continue-on-error: true
+
+      - name: Scan main dependencies with pip-audit
+        run: |
+          if [ -f "requirements-main.txt" ]; then
+            echo "Scanning main dependencies..."
+            pip-audit --requirement requirements-main.txt --format json --output pip-audit-main.json --desc on || true
+            pip-audit --requirement requirements-main.txt --format markdown --output pip-audit-main.md --desc on || true
+          fi
+        continue-on-error: true
+
+      - name: Safety scan - all dependencies
+        run: |
+          if [ -f "requirements-all.txt" ]; then
+            echo "Safety scanning all dependencies..."
+            safety check -r requirements-all.txt --json --output safety-all.json || true
+            safety check -r requirements-all.txt --output safety-all.txt || true
+          fi
+        continue-on-error: true
+
+      - name: Safety scan - main dependencies
+        run: |
+          if [ -f "requirements-main.txt" ]; then
+            echo "Safety scanning main dependencies..."
+            safety check -r requirements-main.txt --json --output safety-main.json || true
+            safety check -r requirements-main.txt --output safety-main.txt || true
+          fi
+        continue-on-error: true
+
+      - name: Check for critical vulnerabilities
+        run: |
+          echo "Checking for critical/high severity vulnerabilities..."
+          CRITICAL_FOUND=0
+
+          # Check pip-audit results
+          for file in pip-audit-*.json; do
+            if [ -f "$file" ]; then
+              echo "Checking $file..."
+              if grep -q '"vulnerabilities"' "$file"; then
+                echo "⚠️  Vulnerabilities found in $file"
+                CRITICAL_FOUND=1
+              fi
+            fi
+          done
+
+          # Check safety results
+          for file in safety-*.json; do
+            if [ -f "$file" ]; then
+              echo "Checking $file..."
+              if grep -q '"vulnerabilities"' "$file" 2>/dev/null; then
+                echo "⚠️  Vulnerabilities found in $file"
+                CRITICAL_FOUND=1
+              fi
+            fi
+          done
+
+          if [ $CRITICAL_FOUND -eq 1 ]; then
+            echo "❌ CRITICAL: Vulnerabilities detected in dependencies!"
+            echo "Review the scan reports in the artifacts for details."
+            echo "has_vulnerabilities=true" >> $GITHUB_OUTPUT
+            exit 1  # Fail the job to prevent merging vulnerable code
+          else
+            echo "✅ No vulnerabilities detected"
+            echo "has_vulnerabilities=false" >> $GITHUB_OUTPUT
+          fi
+        id: vuln_check
+
+      - name: Create vulnerability summary
+        if: always()
+        run: |
+          echo "# 🔒 Dependency Vulnerability Scan Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "This scan uses multiple tools for comprehensive coverage:" >> $GITHUB_STEP_SUMMARY
+          echo "- **pip-audit**: Official PyPA tool using OSV and PyPI databases" >> $GITHUB_STEP_SUMMARY
+          echo "- **Safety**: Uses Safety DB for known security vulnerabilities" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # pip-audit results
+          echo "## pip-audit Results" >> $GITHUB_STEP_SUMMARY
+          for file in pip-audit-*.md; do
+            if [ -f "$file" ]; then
+              echo "### $(basename $file .md)" >> $GITHUB_STEP_SUMMARY
+              cat "$file" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+            fi
+          done
+
+          # Safety results
+          echo "## Safety Results" >> $GITHUB_STEP_SUMMARY
+          for file in safety-*.txt; do
+            if [ -f "$file" ]; then
+              echo "### $(basename $file .txt)" >> $GITHUB_STEP_SUMMARY
+              echo '```' >> $GITHUB_STEP_SUMMARY
+              cat "$file" >> $GITHUB_STEP_SUMMARY
+              echo '```' >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+            fi
+          done
+
+          # Check if no vulnerabilities found
+          if [ ! -f pip-audit-*.md ] && [ ! -f safety-*.txt ]; then
+            echo "✅ No vulnerabilities detected in any dependencies" >> $GITHUB_STEP_SUMMARY
           fi
 
       - name: Upload dependency scan results
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: pip-audit-results
-          path: pip-audit-results.json
+          name: dependency-scan-results
+          path: |
+            pip-audit-*.json
+            pip-audit-*.md
+            safety-*.json
+            safety-*.txt
 
   # Scan infrastructure code with Trivy
   trivy-scan:
