@@ -16,6 +16,10 @@ python-hcl2 = "^4.3.2"
 pyyaml = "^6.0.1"
 jinja2 = "^3.1.3"
 tabulate = "^0.9.0"
+# Statistical analysis
+numpy = "^1.26.0"
+scipy = "^1.11.0"
+pandas = "^2.1.0"
 # API dependencies
 fastapi = "^0.115.0"
 uvicorn = {extras = ["standard"], version = "^0.30.0"}
@@ -40,6 +44,7 @@ black = "^23.12.0"
 mypy = "^1.8.0"
 types-PyYAML = "^6.0.12"
 types-tabulate = "^0.9.0"
+pandas-stubs = "^2.1.0"
 pre-commit = "^3.6.0"
 pip-audit = "^2.6.0"
 safety = "^3.0.0"
@@ -190,6 +195,8 @@ disallow_incomplete_defs = false
 module = [
     "kubernetes.*",
     "hcl2.*",
+    "scipy.*",
+    "numpy.*",
 ]
 ignore_missing_imports = true
 
