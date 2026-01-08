@@ -2,6 +2,7 @@
 """Service Mesh Benchmark Report Generator.
 
 Generates comprehensive reports from benchmark results with detailed metrics and charts.
+Includes statistical significance testing and cost analysis.
 """
 
 import argparse
@@ -15,6 +16,12 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field, ValidationError
 
+from src.analysis import (
+    compare_two_samples,
+    calculate_descriptive_statistics,
+    StatisticalComparison,
+    DescriptiveStatistics,
+)
 from src.tests.models import BenchmarkResult, MeshType
 
 
@@ -36,7 +43,11 @@ class WrkMetrics(BaseModel):
 
 
 class AggregatedMetrics(BaseModel):
-    """Aggregated metrics for a test type and mesh combination."""
+    """Aggregated metrics for a test type and mesh combination.
+
+    Optional fields (= None) are computed during aggregation and may not
+    have values initially.
+    """
 
     test_type: str
     mesh_type: str
@@ -46,6 +57,14 @@ class AggregatedMetrics(BaseModel):
     p95_latency: Optional[float] = None
     p99_latency: Optional[float] = None
     success_rate: Optional[float] = None
+
+    # Statistical analysis (computed during aggregation)
+    throughput_stats: Optional[DescriptiveStatistics] = None
+    latency_stats: Optional[DescriptiveStatistics] = None
+
+    # Comparison vs baseline (computed if this is not baseline)
+    throughput_comparison: Optional[StatisticalComparison] = None
+    latency_comparison: Optional[StatisticalComparison] = None
 
 
 class ChartData(BaseModel):
@@ -147,6 +166,8 @@ def calculate_percentile(data: List[float], percentile: float) -> Optional[float
 def aggregate_metrics(results: List[Dict[str, Any]]) -> Dict[str, AggregatedMetrics]:
     """Aggregate metrics by test type and service mesh.
 
+    Calculates statistical significance compared to baseline.
+
     Args:
         results: List of benchmark result dictionaries.
 
@@ -169,11 +190,11 @@ def aggregate_metrics(results: List[Dict[str, Any]]) -> Dict[str, AggregatedMetr
 
         aggregated[key].runs.append(result)
 
-    # Calculate aggregates
+    # Calculate aggregates and statistical comparisons
     for key, data in aggregated.items():
         runs = data.runs
 
-        # Extract throughput values
+        # Extract throughput and latency values
         throughputs: List[float] = []
         latencies: List[float] = []
 
@@ -184,23 +205,81 @@ def aggregate_metrics(results: List[Dict[str, Any]]) -> Dict[str, AggregatedMetr
                 if "avg_latency_ms" in run["metrics"] and run["metrics"]["avg_latency_ms"]:
                     latencies.append(run["metrics"]["avg_latency_ms"])
 
+        # Calculate basic stats
         if throughputs:
             data.avg_throughput = statistics.mean(throughputs)
+            # Calculate descriptive statistics
+            data.throughput_stats = calculate_descriptive_statistics(throughputs)
+
         if latencies:
             data.avg_latency = statistics.mean(latencies)
             data.p95_latency = calculate_percentile(latencies, 95)
             data.p99_latency = calculate_percentile(latencies, 99)
+            # Calculate descriptive statistics
+            data.latency_stats = calculate_descriptive_statistics(latencies)
+
+    # Now calculate comparisons vs baseline
+    for key, data in aggregated.items():
+        if data.mesh_type == "baseline":
+            continue  # Skip baseline itself
+
+        # Find corresponding baseline
+        baseline_key = f"{data.test_type}_baseline"
+        if baseline_key not in aggregated:
+            continue  # No baseline to compare against
+
+        baseline = aggregated[baseline_key]
+
+        # Extract data for comparison
+        mesh_throughputs: List[float] = []
+        mesh_latencies: List[float] = []
+        baseline_throughputs: List[float] = []
+        baseline_latencies: List[float] = []
+
+        for run in data.runs:
+            if "metrics" in run:
+                if "requests_per_sec" in run["metrics"] and run["metrics"]["requests_per_sec"]:
+                    mesh_throughputs.append(run["metrics"]["requests_per_sec"])
+                if "avg_latency_ms" in run["metrics"] and run["metrics"]["avg_latency_ms"]:
+                    mesh_latencies.append(run["metrics"]["avg_latency_ms"])
+
+        for run in baseline.runs:
+            if "metrics" in run:
+                if "requests_per_sec" in run["metrics"] and run["metrics"]["requests_per_sec"]:
+                    baseline_throughputs.append(run["metrics"]["requests_per_sec"])
+                if "avg_latency_ms" in run["metrics"] and run["metrics"]["avg_latency_ms"]:
+                    baseline_latencies.append(run["metrics"]["avg_latency_ms"])
+
+        # Perform statistical comparisons
+        if mesh_throughputs and baseline_throughputs and len(mesh_throughputs) >= 2 and len(baseline_throughputs) >= 2:
+            try:
+                data.throughput_comparison = compare_two_samples(
+                    baseline=baseline_throughputs,
+                    mesh=mesh_throughputs,
+                )
+            except Exception as e:
+                print(f"Warning: Could not compute throughput comparison for {key}: {e}")
+
+        if mesh_latencies and baseline_latencies and len(mesh_latencies) >= 2 and len(baseline_latencies) >= 2:
+            try:
+                data.latency_comparison = compare_two_samples(
+                    baseline=baseline_latencies,
+                    mesh=mesh_latencies,
+                )
+            except Exception as e:
+                print(f"Warning: Could not compute latency comparison for {key}: {e}")
 
     return aggregated
 
 def generate_comparison_table(aggregated_data: Dict[str, AggregatedMetrics]) -> str:
-    """Generate HTML comparison table.
+    """Generate HTML comparison table with statistical significance.
 
     Args:
         aggregated_data: Dictionary of aggregated metrics.
 
     Returns:
-        HTML string containing comparison tables.
+        HTML string containing comparison tables with confidence intervals
+        and statistical significance indicators.
     """
     # Group by test type
     by_test_type: Dict[str, List[AggregatedMetrics]] = {}
@@ -217,35 +296,81 @@ def generate_comparison_table(aggregated_data: Dict[str, AggregatedMetrics]) -> 
         <table>
             <tr>
                 <th>Service Mesh</th>
-                <th>Avg Throughput</th>
-                <th>Avg Latency</th>
-                <th>P95 Latency</th>
-                <th>P99 Latency</th>
+                <th>Throughput (req/s)</th>
+                <th>95% CI</th>
+                <th>Latency (ms)</th>
+                <th>95% CI</th>
+                <th>P95 / P99</th>
                 <th>Runs</th>
+                <th>vs Baseline</th>
             </tr>
         """
 
         for mesh_data in sorted(meshes, key=lambda x: x.mesh_type):
             mesh_type = mesh_data.mesh_type
-            throughput = (
-                f"{mesh_data.avg_throughput:.2f} req/s" if mesh_data.avg_throughput else "N/A"
-            )
-            avg_lat = f"{mesh_data.avg_latency:.2f} ms" if mesh_data.avg_latency else "N/A"
-            p95_lat = f"{mesh_data.p95_latency:.2f} ms" if mesh_data.p95_latency else "N/A"
-            p99_lat = f"{mesh_data.p99_latency:.2f} ms" if mesh_data.p99_latency else "N/A"
+
+            # Throughput with confidence interval
+            if mesh_data.throughput_stats:
+                ci_low, ci_high = mesh_data.throughput_stats.confidence_interval_95
+                throughput_str = f"{mesh_data.throughput_stats.mean:.2f}"
+                throughput_ci = f"[{ci_low:.2f}, {ci_high:.2f}]"
+            else:
+                throughput_str = f"{mesh_data.avg_throughput:.2f}" if mesh_data.avg_throughput else "N/A"
+                throughput_ci = "N/A"
+
+            # Latency with confidence interval
+            if mesh_data.latency_stats:
+                ci_low, ci_high = mesh_data.latency_stats.confidence_interval_95
+                latency_str = f"{mesh_data.latency_stats.mean:.2f}"
+                latency_ci = f"[{ci_low:.2f}, {ci_high:.2f}]"
+            else:
+                latency_str = f"{mesh_data.avg_latency:.2f}" if mesh_data.avg_latency else "N/A"
+                latency_ci = "N/A"
+
+            # P95/P99
+            p95_lat = f"{mesh_data.p95_latency:.2f}" if mesh_data.p95_latency else "N/A"
+            p99_lat = f"{mesh_data.p99_latency:.2f}" if mesh_data.p99_latency else "N/A"
+            percentiles = f"{p95_lat} / {p99_lat}"
+
+            # Statistical significance vs baseline
+            significance_html = ""
+            if mesh_type != "baseline":
+                if mesh_data.throughput_comparison:
+                    comp = mesh_data.throughput_comparison
+                    sig_marker = "✅" if comp.is_significant else "○"
+                    effect = comp.effect_size_interpretation
+                    significance_html += f"{sig_marker} Throughput: {effect}<br>"
+                    significance_html += f"p={comp.p_value:.4f}, d={comp.cohens_d:.2f}<br>"
+
+                if mesh_data.latency_comparison:
+                    comp = mesh_data.latency_comparison
+                    sig_marker = "✅" if comp.is_significant else "○"
+                    effect = comp.effect_size_interpretation
+                    significance_html += f"{sig_marker} Latency: {effect}<br>"
+                    significance_html += f"p={comp.p_value:.4f}, d={comp.cohens_d:.2f}"
+            else:
+                significance_html = "Baseline"
 
             html += f"""
             <tr>
                 <td><strong>{mesh_type}</strong></td>
-                <td>{throughput}</td>
-                <td>{avg_lat}</td>
-                <td>{p95_lat}</td>
-                <td>{p99_lat}</td>
+                <td>{throughput_str}</td>
+                <td><small>{throughput_ci}</small></td>
+                <td>{latency_str}</td>
+                <td><small>{latency_ci}</small></td>
+                <td><small>{percentiles}</small></td>
                 <td>{len(mesh_data.runs)}</td>
+                <td><small>{significance_html}</small></td>
             </tr>
             """
 
         html += "</table>"
+        html += """
+        <p style="font-size: 12px; color: #666;">
+            <strong>Legend:</strong> ✅ = Statistically significant (p < 0.05), ○ = Not significant<br>
+            <strong>Effect size:</strong> negligible (<0.2), small (0.2-0.5), medium (0.5-0.8), large (>0.8)
+        </p>
+        """
 
     return html
 
