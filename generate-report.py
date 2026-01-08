@@ -21,6 +21,11 @@ from src.analysis import (
     calculate_descriptive_statistics,
     StatisticalComparison,
     DescriptiveStatistics,
+    CloudProvider,
+    DEFAULT_PRICING,
+    ResourceUsage,
+    calculate_tco,
+    calculate_roi,
 )
 from src.tests.models import BenchmarkResult, MeshType
 
@@ -399,6 +404,136 @@ def generate_chart_data(aggregated_data: Dict[str, AggregatedMetrics]) -> str:
     return json.dumps(serializable_data)
 
 
+def generate_cost_analysis_section(
+    results: List[Dict[str, Any]],
+    cloud_provider: CloudProvider = CloudProvider.OCI
+) -> str:
+    """Generate cost analysis section using empirical resource usage data.
+
+    Only displays cost analysis if benchmark results include real resource
+    usage metrics. Otherwise shows a message that resource monitoring is needed.
+
+    Args:
+        results: List of benchmark result dictionaries with resource metrics
+        cloud_provider: Cloud provider for pricing (default: OCI)
+
+    Returns:
+        HTML string containing cost analysis or info message if no data available.
+    """
+    # Check if any results have resource usage data
+    has_resource_data = any(
+        "resource_usage" in result and result["resource_usage"]
+        for result in results
+    )
+
+    if not has_resource_data:
+        return """
+        <h2>💰 Cost Analysis (TCO & ROI)</h2>
+        <div style="padding: 20px; background-color: #fff3cd; border: 1px solid #ffc107; border-radius: 5px;">
+            <p><strong>ℹ️ Resource metrics not available in benchmark results.</strong></p>
+            <p>To enable cost analysis, run benchmarks with resource monitoring enabled to capture:
+            <ul>
+                <li>Control plane CPU and memory usage</li>
+                <li>Data plane (sidecar/eBPF) CPU and memory usage per pod</li>
+                <li>Network egress volumes</li>
+                <li>Setup and maintenance time tracking</li>
+            </ul>
+            <p>The cost analysis module uses ONLY empirical measurements from your actual deployments.</p>
+        </div>
+        """
+
+    # Extract empirical resource usage from results
+    pricing = DEFAULT_PRICING[cloud_provider]
+    tco_results = {}
+
+    for result in results:
+        if "resource_usage" not in result or not result["resource_usage"]:
+            continue
+
+        mesh_name = result.get("mesh_type", "unknown")
+        resource_data = result["resource_usage"]
+
+        # Build ResourceUsage from empirical data
+        try:
+            resource_usage = ResourceUsage(
+                control_plane_cpu_cores=resource_data.get("control_plane_cpu_cores", 0),
+                control_plane_memory_gb=resource_data.get("control_plane_memory_gb", 0),
+                data_plane_cpu_per_pod=resource_data.get("data_plane_cpu_per_pod", 0),
+                data_plane_memory_per_pod_gb=resource_data.get("data_plane_memory_per_pod_gb", 0),
+                number_of_pods=resource_data.get("number_of_pods", 0),
+                network_egress_gb_monthly=resource_data.get("network_egress_gb_monthly", 0),
+            )
+
+            tco = calculate_tco(
+                mesh_name=mesh_name,
+                resource_usage=resource_usage,
+                pricing=pricing,
+                setup_hours=resource_data.get("setup_hours", 0),
+                monthly_maintenance_hours=resource_data.get("monthly_maintenance_hours", 0),
+            )
+
+            tco_results[mesh_name] = tco
+        except Exception as e:
+            print(f"Warning: Could not calculate TCO for {mesh_name}: {e}")
+            continue
+
+    if not tco_results:
+        return """
+        <h2>💰 Cost Analysis (TCO & ROI)</h2>
+        <p style="color: #666;">Resource usage data is malformed or incomplete. Cost analysis unavailable.</p>
+        """
+
+    # Generate HTML table with empirical data
+    html = f"""
+    <h2>💰 Cost Analysis (TCO & ROI)</h2>
+    <p><strong>Based on empirical resource measurements from benchmark runs</strong></p>
+    <p>Cloud Provider: {cloud_provider.value.upper()}</p>
+
+    <table>
+        <tr>
+            <th>Service Mesh</th>
+            <th>Monthly Cost</th>
+            <th>Annual Cost</th>
+            <th>3-Year TCO</th>
+            <th>Setup Cost</th>
+            <th>Infrastructure</th>
+            <th>Operational</th>
+        </tr>
+    """
+
+    baseline_tco = tco_results.get("baseline")
+
+    for mesh_name, tco in sorted(tco_results.items()):
+        # Calculate percentage vs baseline
+        vs_baseline = ""
+        if baseline_tco and mesh_name != "baseline":
+            monthly_diff = tco.monthly_total_cost - baseline_tco.monthly_total_cost
+            pct_diff = (monthly_diff / baseline_tco.monthly_total_cost * 100) if baseline_tco.monthly_total_cost > 0 else 0
+            vs_baseline = f" <small>({pct_diff:+.1f}%)</small>"
+
+        html += f"""
+        <tr>
+            <td><strong>{mesh_name}</strong></td>
+            <td>${tco.monthly_total_cost:.2f}{vs_baseline}</td>
+            <td>${tco.annual_total_cost:.2f}</td>
+            <td>${tco.three_year_tco:.2f}</td>
+            <td>${tco.operational_costs.setup_cost:.2f}</td>
+            <td>${tco.infrastructure_costs.monthly_total:.2f}/mo</td>
+            <td>${tco.operational_costs.monthly_operational_cost:.2f}/mo</td>
+        </tr>
+        """
+
+    html += """
+    </table>
+
+    <p style="font-size: 12px; color: #666;">
+        <strong>Note:</strong> All costs calculated from empirical resource usage measurements captured during benchmark runs.
+    </p>
+    """
+
+    return html
+
+
 def generate_html_report(results: List[Dict[str, Any]], output_file: Path) -> None:
     """Generate enhanced HTML report with charts and metrics.
 
@@ -410,6 +545,7 @@ def generate_html_report(results: List[Dict[str, Any]], output_file: Path) -> No
     aggregated = aggregate_metrics(results)
     comparison_table = generate_comparison_table(aggregated)
     chart_data = generate_chart_data(aggregated)
+    cost_analysis_section = generate_cost_analysis_section(results)
 
     html = f"""
 <!DOCTYPE html>
@@ -560,6 +696,8 @@ def generate_html_report(results: List[Dict[str, Any]], output_file: Path) -> No
             <h3>Latency Comparison</h3>
             <canvas id="latencyChart"></canvas>
         </div>
+
+        {cost_analysis_section}
 
         <h2>📋 Detailed Test Results</h2>
         <table>
