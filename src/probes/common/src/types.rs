@@ -84,6 +84,22 @@ pub struct ConnectionState {
     pub _padding: [u8; 4],
 }
 
+/// XDP connection statistics
+///
+/// Tracks packet and byte counters at the XDP level.
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct XdpConnStats {
+    /// Number of packets processed
+    pub packet_count: u64,
+    /// Number of bytes processed
+    pub byte_count: u64,
+    /// Last timestamp seen (nanoseconds)
+    pub last_seen_ns: u64,
+    /// Number of dropped packets
+    pub drop_count: u64,
+}
+
 // Compile-time alignment checks
 // These will fail to compile if alignment is wrong
 const _: () = {
@@ -95,6 +111,8 @@ const _: () = {
     assert!(core::mem::size_of::<PacketDropEvent>() % core::mem::align_of::<PacketDropEvent>() == 0);
     // ConnectionState alignment check
     assert!(core::mem::size_of::<ConnectionState>() % core::mem::align_of::<ConnectionState>() == 0);
+    // XdpConnStats alignment check
+    assert!(core::mem::size_of::<XdpConnStats>() % core::mem::align_of::<XdpConnStats>() == 0);
 };
 
 // Implement Aya's Pod trait for userspace usage
@@ -107,4 +125,5 @@ mod userspace_impls {
     unsafe impl aya::Pod for LatencyEvent {}
     unsafe impl aya::Pod for PacketDropEvent {}
     unsafe impl aya::Pod for ConnectionState {}
+    unsafe impl aya::Pod for XdpConnStats {}
 }

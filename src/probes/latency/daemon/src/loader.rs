@@ -1,15 +1,24 @@
 //! eBPF program loader
 //!
-//! Handles loading the eBPF program and attaching kprobes.
+//! Handles loading the eBPF program and attaching kprobes, tracepoints, and XDP programs.
 
 use anyhow::{Context, Result};
 use aya::{
     maps::perf::AsyncPerfEventArray,
-    programs::{KProbe, TracePoint},
+    programs::{KProbe, TracePoint, Xdp, XdpFlags},
     Bpf,
 };
 use log::{info, warn};
 use std::path::PathBuf;
+
+/// Result of attaching an optional eBPF program
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AttachResult {
+    /// Program successfully attached
+    Attached,
+    /// Program not found in eBPF object (optional feature)
+    NotFound,
+}
 
 /// eBPF program loader and manager
 pub struct ProbeLoader {
@@ -214,6 +223,30 @@ impl ProbeLoader {
         }
 
         Ok(())
+    }
+
+    /// Attach XDP program to network interface
+    ///
+    /// XDP is optional. Returns NotFound if not in eBPF object, Err on attach failure.
+    pub fn attach_xdp(&mut self, interface: &str, mode: XdpFlags) -> Result<AttachResult> {
+        info!("Attaching XDP program...");
+
+        match self.ebpf.program_mut("xdp_packet_monitor") {
+            Some(prog) => {
+                let program: &mut Xdp = prog
+                    .try_into()
+                    .context("Failed to get xdp_packet_monitor as XDP")?;
+                program.load().context("Failed to load xdp_packet_monitor")?;
+                program.attach(interface, mode)
+                    .with_context(|| format!("Failed to attach XDP to interface '{}' - check permissions and interface exists", interface))?;
+                info!("  ✓ Attached XDP to {}", interface);
+                Ok(AttachResult::Attached)
+            }
+            None => {
+                warn!("  ⚠ xdp_packet_monitor program not found (optional)");
+                Ok(AttachResult::NotFound)
+            }
+        }
     }
 
     /// Get the perf event array for reading latency events

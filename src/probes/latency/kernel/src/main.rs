@@ -40,15 +40,16 @@ mod helpers;
 mod maps;
 mod socket_parser;
 
-// Re-export kprobe functions so they're visible to the loader
+// Re-export kprobe and XDP functions so they're visible to the loader
 pub use handlers::{
     tcp_cleanup_rbuf, tcp_recvmsg, tcp_sendmsg,
     tcp_drop, kfree_skb_tracepoint,
     tcp_set_state, tcp_v4_connect, tcp_close,
+    xdp_packet_monitor,
 };
 
 // Re-export maps for verification
-pub use maps::{CONNECTION_START, EVENTS, STATS, PACKET_DROPS, CONNECTION_STATES};
+pub use maps::{CONNECTION_START, EVENTS, STATS, PACKET_DROPS, CONNECTION_STATES, XDP_CONN_STATS};
 
 #[cfg(not(test))]
 #[panic_handler]

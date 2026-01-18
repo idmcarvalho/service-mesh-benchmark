@@ -31,11 +31,11 @@ pub static EVENTS: PerfEventArray<LatencyEvent> =
 /// Statistics counter map
 ///
 /// Tracks various statistics for monitoring probe health.
-/// Key: stat_id (see STAT_* constants)
+/// Key: stat_id (see STAT_* constants in probe_common::constants)
 /// Value: u64 counter
 #[map]
 pub static STATS: HashMap<u32, u64> =
-    HashMap::with_max_entries(32, 0);
+    HashMap::with_max_entries(MAX_STATS, 0);
 
 /// Perf event array for packet drop events
 ///
@@ -54,15 +54,13 @@ pub static PACKET_DROPS: PerfEventArray<PacketDropEvent> =
 pub static CONNECTION_STATES: HashMap<ConnectionKey, ConnectionState> =
     HashMap::with_max_entries(MAX_CONNECTIONS, 0);
 
-// Stat IDs for STATS map
-pub const STAT_TOTAL_EVENTS: u32 = 0;
-pub const STAT_SEND_EVENTS: u32 = 1;
-pub const STAT_RECV_EVENTS: u32 = 2;
-pub const STAT_CLEANUP_EVENTS: u32 = 3;
-pub const STAT_DROPPED_EVENTS: u32 = 4;
-pub const STAT_INVALID_SOCKETS: u32 = 5;
-pub const STAT_INVALID_LATENCY: u32 = 6;
-pub const STAT_PACKET_DROPS: u32 = 7;
-pub const STAT_STATE_TRANSITIONS: u32 = 8;
-pub const STAT_CONNECTIONS_OPENED: u32 = 9;
-pub const STAT_CONNECTIONS_CLOSED: u32 = 10;
+/// Map to track XDP-level connection statistics
+///
+/// Key: ConnectionKey (4-tuple)
+/// Value: XdpConnStats
+///
+/// Tracks packet and byte counters at the XDP level for each connection.
+/// This provides early packet visibility before the network stack.
+#[map]
+pub static XDP_CONN_STATS: HashMap<ConnectionKey, XdpConnStats> =
+    HashMap::with_max_entries(MAX_CONNECTIONS, 0);

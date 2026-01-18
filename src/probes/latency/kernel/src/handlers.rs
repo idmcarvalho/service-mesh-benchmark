@@ -1,9 +1,13 @@
-//! Kprobe handlers for TCP latency tracking
+//! Kprobe and XDP handlers for TCP latency tracking
 //!
 //! Implements the actual eBPF programs that attach to kernel functions
 //! and measure network latency, packet drops, and connection states.
 
-use aya_ebpf::{macros::{kprobe, tracepoint}, programs::ProbeContext};
+use aya_ebpf::{
+    macros::{kprobe, tracepoint, xdp},
+    programs::{ProbeContext, XdpContext},
+};
+use aya_ebpf::bindings::xdp_action;
 use probe_common::{constants::*, types::*};
 
 use crate::{
@@ -506,3 +510,167 @@ fn try_tcp_close(ctx: &ProbeContext) -> Result<u32, i64> {
 
     Ok(0)
 }
+
+// ============================================================================
+// XDP Packet Processing
+// ============================================================================
+
+/// XDP program for early packet processing and monitoring
+///
+/// Attached to: Network interface (via XDP hook)
+///
+/// This XDP program runs at the NIC driver level before the network stack,
+/// providing ultra-low-latency packet processing and monitoring.
+///
+/// Key capabilities:
+/// - Track packet statistics at XDP level
+/// - Monitor packet drops before stack processing
+/// - Collect early network metrics
+/// - Optionally drop/redirect packets for DDoS mitigation
+#[xdp]
+pub fn xdp_packet_monitor(ctx: XdpContext) -> u32 {
+    match try_xdp_packet_monitor(&ctx) {
+        Ok(action) => action,
+        Err(_) => xdp_action::XDP_ABORTED,
+    }
+}
+
+fn try_xdp_packet_monitor(ctx: &XdpContext) -> Result<u32, ()> {
+    increment_stat(STAT_TOTAL_EVENTS);
+    increment_stat(STAT_XDP_PACKETS);
+
+    // Parse Ethernet header
+    let eth_hdr = ptr_at::<EthHdr>(&ctx, 0)?;
+
+    // Check if it's an IP packet (0x0800 = IPv4)
+    let eth_proto = u16::from_be(unsafe { (*eth_hdr).ether_type });
+
+    if eth_proto != ETH_P_IP {
+        // Not IPv4, pass through
+        return Ok(xdp_action::XDP_PASS);
+    }
+
+    increment_stat(STAT_XDP_IPV4_PACKETS);
+
+    // Parse IP header
+    let ip_hdr = ptr_at::<IpHdr>(&ctx, EthHdr::LEN)?;
+    let protocol = unsafe { (*ip_hdr).protocol };
+
+    // Track protocol statistics
+    match protocol {
+        IPPROTO_TCP => {
+            increment_stat(STAT_XDP_TCP_PACKETS);
+
+            // Parse TCP header for additional monitoring
+            let tcp_hdr = ptr_at::<TcpHdr>(&ctx, EthHdr::LEN + IpHdr::LEN)?;
+
+            // Extract connection info
+            let saddr = u32::from_be(unsafe { (*ip_hdr).saddr });
+            let daddr = u32::from_be(unsafe { (*ip_hdr).daddr });
+            let sport = u16::from_be(unsafe { (*tcp_hdr).source });
+            let dport = u16::from_be(unsafe { (*tcp_hdr).dest });
+
+            // Create connection key
+            let key = ConnectionKey {
+                saddr,
+                daddr,
+                sport,
+                dport,
+            };
+
+            // Update XDP packet counters for this connection
+            unsafe {
+                if let Some(stats) = XDP_CONN_STATS.get_ptr_mut(&key) {
+                    (*stats).packet_count += 1;
+                    (*stats).byte_count += (ctx.data_end() - ctx.data()) as u64;
+                    (*stats).last_seen_ns = get_timestamp();
+                } else {
+                    // Create new stats entry
+                    let new_stats = XdpConnStats {
+                        packet_count: 1,
+                        byte_count: (ctx.data_end() - ctx.data()) as u64,
+                        last_seen_ns: get_timestamp(),
+                        drop_count: 0,
+                    };
+                    let _ = XDP_CONN_STATS.insert(&key, &new_stats, 0);
+                }
+            }
+        }
+        IPPROTO_UDP => {
+            increment_stat(STAT_XDP_UDP_PACKETS);
+        }
+        IPPROTO_ICMP => {
+            increment_stat(STAT_XDP_ICMP_PACKETS);
+        }
+        _ => {
+            increment_stat(STAT_XDP_OTHER_PACKETS);
+        }
+    }
+
+    // Pass all packets to network stack for normal processing
+    // In a production scenario, you might:
+    // - Return XDP_DROP to drop malicious packets
+    // - Return XDP_TX to reflect packets back
+    // - Return XDP_REDIRECT to redirect to another interface
+    Ok(xdp_action::XDP_PASS)
+}
+
+// Helper function to safely access packet data
+#[inline(always)]
+fn ptr_at<T>(ctx: &XdpContext, offset: usize) -> Result<*const T, ()> {
+    let start = ctx.data();
+    let end = ctx.data_end();
+    let len = core::mem::size_of::<T>();
+
+    if start + offset + len > end {
+        return Err(());
+    }
+
+    Ok((start + offset) as *const T)
+}
+
+// Simplified packet header structures
+#[repr(C)]
+struct EthHdr {
+    dst_addr: [u8; 6],
+    src_addr: [u8; 6],
+    ether_type: u16,
+}
+
+impl EthHdr {
+    const LEN: usize = 14;
+}
+
+#[repr(C)]
+struct IpHdr {
+    _bitfield: u8,
+    _tos: u8,
+    _tot_len: u16,
+    _id: u16,
+    _frag_off: u16,
+    _ttl: u8,
+    protocol: u8,
+    _check: u16,
+    saddr: u32,
+    daddr: u32,
+}
+
+impl IpHdr {
+    const LEN: usize = 20;
+}
+
+#[repr(C)]
+struct TcpHdr {
+    source: u16,
+    dest: u16,
+    _seq: u32,
+    _ack_seq: u32,
+    _res1_doff: u16,
+    _flags: u16,
+    _window: u16,
+    _check: u16,
+    _urg_ptr: u16,
+}
+
+// Ethernet protocol constant
+const ETH_P_IP: u16 = 0x0800;

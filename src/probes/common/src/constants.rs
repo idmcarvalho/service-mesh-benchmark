@@ -139,3 +139,58 @@ pub const PORT_DYNAMIC_START: u16 = 49152;
 
 /// Dynamic/private port range end
 pub const PORT_DYNAMIC_END: u16 = 65535;
+
+// ============================================================================
+// Statistics Counter Indices (for STATS map)
+// ============================================================================
+
+/// Total number of events processed
+pub const STAT_TOTAL_EVENTS: u32 = 0;
+
+/// Number of send events (tcp_sendmsg)
+pub const STAT_SEND_EVENTS: u32 = 1;
+
+/// Number of receive events (tcp_recvmsg)
+pub const STAT_RECV_EVENTS: u32 = 2;
+
+/// Number of cleanup events (tcp_cleanup_rbuf)
+pub const STAT_CLEANUP_EVENTS: u32 = 3;
+
+/// Number of packet drop events
+pub const STAT_PACKET_DROPS: u32 = 4;
+
+/// Number of invalid socket operations
+pub const STAT_INVALID_SOCKETS: u32 = 5;
+
+/// Number of invalid latency measurements
+pub const STAT_INVALID_LATENCY: u32 = 6;
+
+/// Number of connections opened
+pub const STAT_CONNECTIONS_OPENED: u32 = 7;
+
+/// Number of connections closed
+pub const STAT_CONNECTIONS_CLOSED: u32 = 8;
+
+/// Number of TCP state transitions
+pub const STAT_STATE_TRANSITIONS: u32 = 9;
+
+/// Number of XDP packets processed
+pub const STAT_XDP_PACKETS: u32 = 10;
+
+/// Number of XDP IPv4 packets
+pub const STAT_XDP_IPV4_PACKETS: u32 = 11;
+
+/// Number of XDP TCP packets
+pub const STAT_XDP_TCP_PACKETS: u32 = 12;
+
+/// Number of XDP UDP packets
+pub const STAT_XDP_UDP_PACKETS: u32 = 13;
+
+/// Number of XDP ICMP packets
+pub const STAT_XDP_ICMP_PACKETS: u32 = 14;
+
+/// Number of XDP other protocol packets
+pub const STAT_XDP_OTHER_PACKETS: u32 = 15;
+
+/// Total number of statistics counters
+pub const MAX_STATS: u32 = 16;
