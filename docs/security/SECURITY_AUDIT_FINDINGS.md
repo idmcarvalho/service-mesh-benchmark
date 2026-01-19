@@ -33,7 +33,7 @@ A comprehensive security audit identified **25 security issues** across the proj
 
 ### C1. Kubernetes API TLS Verification Disabled
 
-**File**: `terraform/oracle-cloud/scripts/init-master.sh:93`
+**File**: `infrastructure/terraform/oracle-cloud/scripts/init-master.sh:93`
 **Severity**: CRITICAL
 
 **Issue**:
@@ -67,7 +67,7 @@ kubectl delete deployment metrics-server -n kube-system
 
 ### C2. Direct Binary Download for Helm Without Full Verification
 
-**File**: `terraform/oracle-cloud/scripts/init-master.sh:86-106`
+**File**: `infrastructure/terraform/oracle-cloud/scripts/init-master.sh:86-106`
 **Severity**: CRITICAL
 
 **Issue**: While checksum verification is present, it only verifies the installer script, not the actual Helm binary that gets installed.
@@ -311,7 +311,7 @@ rm -f /tmp/ghz.tar.gz
 
 ### M1. Weak Network Egress Filtering
 
-**File**: `terraform/oracle-cloud/main.tf:72-126`
+**File**: `infrastructure/terraform/oracle-cloud/main.tf:72-126`
 **Severity**: MEDIUM
 
 **Issue**: While restricted to specific ports, egress still allows connections to ANY destination IP on those ports.

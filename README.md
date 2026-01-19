@@ -16,19 +16,23 @@ This project provides an automated infrastructure and testing framework to bench
 
 ```
 service-mesh-benchmark/
-├── terraform/              # Infrastructure as Code
-│   └── oracle-cloud/       # OCI-specific configuration
-│       ├── main.tf         # VCN, instances, load balancer
-│       ├── variables.tf    # Configuration variables
-│       ├── outputs.tf      # Resource outputs
-│       ├── versions.tf     # Provider requirements
-│       └── scripts/        # Instance initialization scripts
+├── infrastructure/         # Infrastructure code
+│   ├── terraform/          # Infrastructure as Code
+│   │   ├── oracle-cloud/   # OCI K8s cluster deployment
+│   │   │   ├── main.tf     # VCN, instances, load balancer
+│   │   │   ├── variables.tf # Configuration variables
+│   │   │   ├── outputs.tf  # Resource outputs
+│   │   │   └── versions.tf # Provider requirements
+│   │   └── single-instance/ # OCI single instance with Ansible
+│   │       ├── main.tf     # Simple single VM deployment
+│   │       ├── variables.tf # Configuration variables
+│   │       └── outputs.tf  # Resource outputs
+│   └── ansible/            # Configuration management
+│       ├── playbooks/      # Setup automation
+│       └── inventory/      # Host configurations
 ├── kubernetes/             # Kubernetes manifests
 │   ├── workloads/          # Benchmark workloads
 │   └── policies/           # Network policies
-├── ansible/                # Configuration management
-│   ├── playbooks/          # Setup automation
-│   └── inventory/          # Host configurations
 ├── benchmarks/             # Testing scripts
 │   ├── scripts/            # Test execution scripts
 │   └── results/            # Benchmark results
@@ -53,7 +57,7 @@ service-mesh-benchmark/
 Copy the example configuration and fill in your OCI credentials:
 
 ```bash
-cp terraform/oracle-cloud/terraform.tfvars.example terraform/oracle-cloud/terraform.tfvars
+cp infrastructure/terraform/oracle-cloud/terraform.tfvars.example infrastructure/terraform/oracle-cloud/terraform.tfvars
 ```
 
 Edit `terraform.tfvars` with your:
@@ -90,7 +94,7 @@ After infrastructure deployment, SSH into the master node and copy the kubeconfi
 
 ```bash
 # Get SSH command
-cd terraform/oracle-cloud && terraform output ssh_to_master
+cd infrastructure/terraform/oracle-cloud && terraform output ssh_to_master
 
 # SSH and copy kubeconfig to your local machine
 scp ubuntu@<master-ip>:~/.kube/config ~/.kube/config-benchmark
@@ -308,7 +312,7 @@ cd benchmarks/scripts && bash http-load-test.sh
 
 ```bash
 # If terraform state is corrupted
-cd terraform/oracle-cloud
+cd infrastructure/terraform/oracle-cloud
 terraform state list
 terraform state rm <resource>
 

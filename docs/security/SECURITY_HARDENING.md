@@ -17,7 +17,7 @@ This document provides comprehensive security hardening guidelines for the Servi
 
 ### 1.1 🔴 Unsafe Script Execution in Infrastructure
 
-**File**: `terraform/oracle-cloud/scripts/init-master.sh:87`
+**File**: `infrastructure/terraform/oracle-cloud/scripts/init-master.sh:87`
 
 **Issue**: Piping curl directly to bash without verification
 ```bash
@@ -85,7 +85,7 @@ CMD ["python", "app.py"]
 
 ### 1.3 🔴 Unrestricted Network Egress
 
-**File**: `terraform/oracle-cloud/main.tf:72-75`
+**File**: `infrastructure/terraform/oracle-cloud/main.tf:72-75`
 
 **Issue**: Security group allows all outbound traffic
 ```hcl
@@ -275,7 +275,7 @@ done
 
 ### 2.3 🟠 Dangerous Terraform Defaults
 
-**File**: `terraform/oracle-cloud/variables.tf:46,56,66`
+**File**: `infrastructure/terraform/oracle-cloud/variables.tf:46,56,66`
 
 **Issue**: Default CIDR is `0.0.0.0/0` with only a comment warning
 
@@ -782,7 +782,7 @@ pip install pydantic
 # Use Pydantic models for config validation
 
 # 4. Enable Terraform validation
-cd terraform/oracle-cloud
+cd infrastructure/terraform/oracle-cloud
 terraform validate
 tfsec .
 

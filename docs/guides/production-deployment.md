@@ -59,7 +59,7 @@ Last Updated: 2024-10-27
 
 ### 2. Configuration Files
 
-- [ ] Create `terraform/oracle-cloud/terraform.tfvars`
+- [ ] Create `infrastructure/terraform/oracle-cloud/terraform.tfvars`
   ```hcl
   tenancy_ocid     = "ocid1.tenancy.oc1.."
   user_ocid        = "ocid1.user.oc1.."
@@ -115,7 +115,7 @@ oci limits resource-availability get --compartment-id <compartment-ocid> \
 ### Step 1: Initialize Terraform
 
 ```bash
-cd terraform/oracle-cloud
+cd infrastructure/terraform/oracle-cloud
 
 # Initialize Terraform
 terraform init
@@ -473,7 +473,7 @@ kubectl scale deployment benchmark-api --replicas=3 -n benchmark-system
 ### Rollback Infrastructure (Nuclear Option)
 
 ```bash
-cd terraform/oracle-cloud
+cd infrastructure/terraform/oracle-cloud
 
 # Destroy infrastructure
 terraform destroy -auto-approve

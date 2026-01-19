@@ -1,7 +1,7 @@
 .PHONY: help init deploy-infra deploy-workloads test clean destroy lint format type-check quality
 
 # Variables
-TERRAFORM_DIR := terraform/oracle-cloud
+TERRAFORM_DIR := infrastructure/terraform/oracle-cloud
 WORKLOADS_DIR := kubernetes/workloads
 BENCHMARKS_DIR := benchmarks/scripts
 ANSIBLE_DIR := ansible

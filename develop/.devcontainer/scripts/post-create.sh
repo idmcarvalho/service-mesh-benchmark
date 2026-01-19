@@ -13,7 +13,7 @@ pip3 install --user requests pandas matplotlib
 echo "Development environment setup complete!"
 echo ""
 echo "Quick start:"
-echo "  1. Configure Terraform: cp terraform/oracle-cloud/terraform.tfvars.example terraform/oracle-cloud/terraform.tfvars"
+echo "  1. Configure Terraform: cp infrastructure/terraform/oracle-cloud/terraform.tfvars.example infrastructure/terraform/oracle-cloud/terraform.tfvars"
 echo "  2. Deploy infrastructure: make deploy-infra"
 echo "  3. Deploy workloads: make deploy-workloads"
 echo "  4. Run tests: make test-all"

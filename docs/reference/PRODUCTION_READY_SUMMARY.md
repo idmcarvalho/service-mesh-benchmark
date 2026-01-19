@@ -392,11 +392,11 @@ docker-compose exec api pytest tests/
 
 ```bash
 # 1. Configure credentials
-cp terraform/oracle-cloud/terraform.tfvars.example terraform/oracle-cloud/terraform.tfvars
+cp infrastructure/terraform/oracle-cloud/terraform.tfvars.example infrastructure/terraform/oracle-cloud/terraform.tfvars
 # Edit terraform.tfvars with your OCI credentials
 
 # 2. Deploy infrastructure
-cd terraform/oracle-cloud
+cd infrastructure/terraform/oracle-cloud
 terraform init
 terraform apply
 

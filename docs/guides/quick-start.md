@@ -37,11 +37,11 @@ mkdir -p ~/.oci
 ### Deploy
 ```bash
 # 1. Configure
-cp terraform/oracle-cloud/terraform.tfvars.example terraform/oracle-cloud/terraform.tfvars
-vim terraform/oracle-cloud/terraform.tfvars  # Add your OCI credentials and IP
+cp infrastructure/terraform/oracle-cloud/terraform.tfvars.example infrastructure/terraform/oracle-cloud/terraform.tfvars
+vim infrastructure/terraform/oracle-cloud/terraform.tfvars  # Add your OCI credentials and IP
 
 # 2. Deploy infrastructure (10-15 min)
-cd terraform/oracle-cloud
+cd infrastructure/terraform/oracle-cloud
 terraform init
 terraform apply -auto-approve
 
@@ -211,7 +211,7 @@ kubectl get cronjobs -n benchmark-system
 kubectl scale deployment benchmark-api --replicas=5 -n benchmark-system
 
 # Scale workers (requires Terraform)
-cd terraform/oracle-cloud
+cd infrastructure/terraform/oracle-cloud
 terraform apply -var="worker_count=3"
 ```
 

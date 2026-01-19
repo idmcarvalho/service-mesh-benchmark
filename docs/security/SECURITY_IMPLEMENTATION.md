@@ -18,7 +18,7 @@ All critical and high-priority security issues from the security audit have been
 
 ### 1.1 ✅ Unsafe Script Execution Fixed
 
-**File**: [terraform/oracle-cloud/scripts/init-master.sh](terraform/oracle-cloud/scripts/init-master.sh:86-106)
+**File**: [infrastructure/terraform/oracle-cloud/scripts/init-master.sh](infrastructure/terraform/oracle-cloud/scripts/init-master.sh:86-106)
 
 **Changes**:
 - Added checksum verification for Helm installer download
@@ -48,7 +48,7 @@ All critical and high-priority security issues from the security audit have been
 
 ### 1.3 ✅ Network Egress Restricted
 
-**File**: [terraform/oracle-cloud/main.tf](terraform/oracle-cloud/main.tf:72-126)
+**File**: [infrastructure/terraform/oracle-cloud/main.tf](infrastructure/terraform/oracle-cloud/main.tf:72-126)
 
 **Changes**:
 - Replaced "allow all" egress rule with specific protocols:
@@ -106,7 +106,7 @@ Added comprehensive security contexts to all pods:
 
 ### 2.3 ✅ Dangerous Terraform Defaults Removed
 
-**File**: [terraform/oracle-cloud/variables.tf](terraform/oracle-cloud/variables.tf:42-105)
+**File**: [infrastructure/terraform/oracle-cloud/variables.tf](infrastructure/terraform/oracle-cloud/variables.tf:42-105)
 
 **Changes**:
 - Removed dangerous `0.0.0.0/0` defaults for all CIDR variables
@@ -115,7 +115,7 @@ Added comprehensive security contexts to all pods:
   - Valid CIDR format validation
   - Explicit rejection of `0.0.0.0/0`
   - Explicit rejection of `0.0.0.0` base address
-- Updated [terraform.tfvars.example](terraform/oracle-cloud/terraform.tfvars.example:18-25) with security warnings
+- Updated [terraform.tfvars.example](infrastructure/terraform/oracle-cloud/terraform.tfvars.example:18-25) with security warnings
 
 **Impact**: Forces users to specify secure IP ranges, prevents accidental exposure.
 
@@ -288,7 +288,7 @@ git branch develop
 
 1. **Terraform Validation**
    ```bash
-   cd terraform/oracle-cloud
+   cd infrastructure/terraform/oracle-cloud
    terraform init
    terraform validate
    tfsec .
