@@ -1,0 +1,65 @@
+{
+  "$schema": "https://modelcontextprotocol.io/schemas/mcp.json",
+  "mcpServers": {
+    "kubernetes": {
+      "command": "npx",
+      "args": ["-y", "kubernetes-mcp-server@latest"],
+      "env": {
+        "KUBECONFIG": "${KUBECONFIG:-~/.kube/config}"
+      },
+      "description": "Kubernetes MCP Server - Manage K8s clusters, pods, deployments, services, and Helm charts"
+    },
+    "prometheus": {
+      "command": "docker",
+      "args": [
+        "run", "-i", "--rm",
+        "--network", "host",
+        "-e", "PROMETHEUS_URL",
+        "-e", "PROMETHEUS_USERNAME",
+        "-e", "PROMETHEUS_PASSWORD",
+        "ghcr.io/pab1it0/prometheus-mcp-server:latest"
+      ],
+      "env": {
+        "PROMETHEUS_URL": "${PROMETHEUS_URL:-http://localhost:9090}",
+        "PROMETHEUS_USERNAME": "${PROMETHEUS_USERNAME:-}",
+        "PROMETHEUS_PASSWORD": "${PROMETHEUS_PASSWORD:-}"
+      },
+      "description": "Prometheus MCP Server - Query metrics, analyze performance data, and monitor service mesh overhead"
+    },
+    "argocd": {
+      "command": "npx",
+      "args": ["-y", "@argoproj-labs/mcp-for-argocd@latest"],
+      "env": {
+        "ARGOCD_SERVER": "${ARGOCD_SERVER:-localhost:8080}",
+        "ARGOCD_AUTH_TOKEN": "${ARGOCD_AUTH_TOKEN:-}",
+        "ARGOCD_INSECURE": "${ARGOCD_INSECURE:-true}"
+      },
+      "description": "ArgoCD MCP Server (CNCF Graduated) - GitOps continuous delivery for Kubernetes applications"
+    },
+    "helm": {
+      "command": "uvx",
+      "args": ["mcp-server-helm"],
+      "env": {
+        "KUBECONFIG": "${KUBECONFIG:-~/.kube/config}"
+      },
+      "description": "Helm MCP Server - Manage Helm charts, repositories, and Kubernetes package deployments"
+    },
+    "litmuschaos": {
+      "command": "docker",
+      "args": [
+        "run", "-i", "--rm",
+        "--network", "host",
+        "-e", "CHAOS_CENTER_ENDPOINT",
+        "-e", "LITMUS_PROJECT_ID",
+        "-e", "LITMUS_ACCESS_TOKEN",
+        "litmuschaos/litmus-mcp-server:latest"
+      ],
+      "env": {
+        "CHAOS_CENTER_ENDPOINT": "${CHAOS_CENTER_ENDPOINT:-http://localhost:8080}",
+        "LITMUS_PROJECT_ID": "${LITMUS_PROJECT_ID:-}",
+        "LITMUS_ACCESS_TOKEN": "${LITMUS_ACCESS_TOKEN:-}"
+      },
+      "description": "LitmusChaos MCP Server (CNCF Incubating) - Chaos engineering for Kubernetes resilience testing"
+    }
+  }
+}
