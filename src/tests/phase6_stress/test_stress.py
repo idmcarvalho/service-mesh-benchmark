@@ -12,15 +12,14 @@ from kubernetes.client.rest import ApiException
 logger = logging.getLogger(__name__)
 
 
-
 @pytest.mark.phase7
 @pytest.mark.integration
 @pytest.mark.slow
-"""Stress testing under high load"""
 class TestStressTests:
-    """Test with very high concurrent connections"""
+    """Stress testing under high load"""
+
     def test_high_concurrent_connections(self, run_benchmark, test_config, mesh_type):
-        
+        """Test with very high concurrent connections"""
         high_connections = test_config["concurrent_connections"] * 5  # 5x normal
 
         results = run_benchmark(
@@ -41,8 +40,8 @@ class TestStressTests:
         print(f"  Requests/sec: {results['metrics']['requests_per_sec']}")
         print(f"  Avg Latency: {results['metrics']['avg_latency_ms']}ms")
 
-    """Test with extended duration (10 minutes)"""
     def test_extended_duration(self, run_benchmark, test_config, mesh_type):
+        """Test with extended duration (10 minutes)"""
         results = run_benchmark(
             "http-load-test.sh",
             env_vars={
@@ -59,8 +58,8 @@ class TestStressTests:
         print(f"\nExtended Duration Test (10 minutes):")
         print(f"  Requests/sec: {results['metrics']['requests_per_sec']}")
 
-    """Test handling of burst traffic patterns"""
     def test_burst_traffic(self, kubectl_exec, mesh_type):
+        """Test handling of burst traffic patterns"""
         namespace = "http-benchmark" if mesh_type != "baseline" else "baseline-http"
         service_url = "http-server.http-benchmark.svc.cluster.local" if mesh_type != "baseline" else "baseline-http-server.baseline-http.svc.cluster.local"
 
@@ -100,10 +99,11 @@ class TestStressTests:
 
 @pytest.mark.phase7
 @pytest.mark.integration
-"""Test behavior under failure conditions"""
 class TestFailureScenarios:
-    """Test recovery when pods are deleted"""
+    """Test behavior under failure conditions"""
+
     def test_pod_failure_recovery(self, k8s_client, wait_for_pods, mesh_type):
+        """Test recovery when pods are deleted"""
         namespace = "http-benchmark" if mesh_type != "baseline" else "baseline-http"
         label = "app=http-server" if mesh_type != "baseline" else "app=baseline-http-server"
 
@@ -148,8 +148,8 @@ class TestFailureScenarios:
 
             print("Pod successfully recovered")
 
-    """Test that service continues during pod failures"""
     def test_service_continuity_during_failure(self, kubectl_exec, k8s_client, mesh_type):
+        """Test that service continues during pod failures"""
         namespace = "http-benchmark" if mesh_type != "baseline" else "baseline-http"
         service_url = "http-server.http-benchmark.svc.cluster.local" if mesh_type != "baseline" else "baseline-http-server.baseline-http.svc.cluster.local"
         label = "app=http-server" if mesh_type != "baseline" else "app=baseline-http-server"
@@ -212,8 +212,8 @@ class TestFailureScenarios:
             # Should have some failures but mostly successful
             assert success_rate >= 50, f"Too many failures: {success_rate:.1f}%"
 
-    """Test behavior when node resources are saturated"""
     def test_node_resource_saturation(self, kubectl_exec, mesh_type):
+        """Test behavior when node resources are saturated"""
         namespace = "http-benchmark" if mesh_type != "baseline" else "baseline-http"
 
         # This is a cautious test - we don't want to crash the cluster
@@ -247,10 +247,11 @@ class TestFailureScenarios:
 
 @pytest.mark.phase7
 @pytest.mark.integration
-"""Test security policies and network isolation"""
 class TestSecurityAndPolicies:
-    """Test network policy enforcement (if applicable)"""
+    """Test security policies and network isolation"""
+
     def test_network_policy_enforcement(self, kubectl_exec, mesh_type):
+        """Test network policy enforcement (if applicable)"""
         if mesh_type == "baseline":
             pytest.skip("Network policies not tested in baseline")
 
@@ -263,8 +264,8 @@ class TestSecurityAndPolicies:
         # Just verify command works
         assert result.returncode == 0
 
-    """Test mTLS is enforced"""
     def test_mtls_enforcement(self, kubectl_exec, mesh_type):
+        """Test mTLS is enforced"""
         if mesh_type == "baseline":
             pytest.skip("No mTLS in baseline")
 
@@ -282,8 +283,8 @@ class TestSecurityAndPolicies:
             print("\nPeerAuthentication status:")
             print(result.stdout if result.returncode == 0 else "No PeerAuthentication found")
 
-    """Test that unauthorized access is blocked (if policies configured)"""
     def test_unauthorized_access_blocked(self, kubectl_exec, mesh_type):
+        """Test that unauthorized access is blocked (if policies configured)"""
         # This test depends on having authorization policies configured
         # It's more of a template for custom policy testing
 
@@ -293,8 +294,8 @@ class TestSecurityAndPolicies:
         print("\nAuthorization policy test (template)")
         print("Configure specific authorization policies and test here")
 
-    """Test rate limiting (if configured)"""
     def test_rate_limiting(self, kubectl_exec, mesh_type):
+        """Test rate limiting (if configured)"""
         if mesh_type == "baseline":
             pytest.skip("No rate limiting in baseline")
 
@@ -304,10 +305,11 @@ class TestSecurityAndPolicies:
 
 
 @pytest.mark.phase7
-"""Test edge cases and unusual scenarios"""
 class TestEdgeCases:
-    """Test handling of empty/minimal requests"""
+    """Test edge cases and unusual scenarios"""
+
     def test_empty_request(self, kubectl_exec, mesh_type):
+        """Test handling of empty/minimal requests"""
         namespace = "http-benchmark" if mesh_type != "baseline" else "baseline-http"
         service_url = "http-server.http-benchmark.svc.cluster.local" if mesh_type != "baseline" else "baseline-http-server.baseline-http.svc.cluster.local"
 
@@ -326,8 +328,8 @@ class TestEdgeCases:
 
         assert "200" in result.stdout or "404" in result.stdout, "Unexpected response to empty request"
 
-    """Test handling of large payloads"""
     def test_large_payload(self, kubectl_exec, mesh_type):
+        """Test handling of large payloads"""
         namespace = "http-benchmark" if mesh_type != "baseline" else "baseline-http"
         service_url = "http-server.http-benchmark.svc.cluster.local" if mesh_type != "baseline" else "baseline-http-server.baseline-http.svc.cluster.local"
 
@@ -348,8 +350,8 @@ class TestEdgeCases:
         # Should handle large payloads (might return error but shouldn't crash)
         print(f"\nLarge payload test response: {result.stdout}")
 
-    """Test access across namespaces"""
     def test_concurrent_namespace_access(self, kubectl_exec, k8s_client, mesh_type):
+        """Test access across namespaces"""
         # Create a temporary namespace and try to access services
         test_ns = "cross-ns-test"
 

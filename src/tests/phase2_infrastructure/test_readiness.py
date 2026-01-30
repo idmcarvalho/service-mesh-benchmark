@@ -18,13 +18,11 @@ logger = logging.getLogger(__name__)
 class TestInfrastructure:
     """Infrastructure validation tests"""
 
-    @pytest.mark.skipif(
-        pytest.config is None or pytest.config.getoption("--skip-infra", default=False),
-        reason="Infrastructure tests skipped"
-    )
+    def test_terraform_state_exists(self, test_config, request):
+        """Verify Terraform state exists (infrastructure deployed)"""
+        if request.config.getoption("--skip-infra", default=False):
+            pytest.skip("Infrastructure tests skipped")
 
-    """Verify Terraform state exists (infrastructure deployed)"""
-    def test_terraform_state_exists(self, test_config):
         result = subprocess.run(
             ["terraform", "show"],
             cwd=test_config["terraform_dir"],
@@ -33,16 +31,16 @@ class TestInfrastructure:
         )
         assert result.returncode == 0, "No Terraform state found - infrastructure not deployed"
 
-"""Verify Kubernetes cluster is accessible"""
     def test_kubernetes_cluster_accessible(self, k8s_client):
+        """Verify Kubernetes cluster is accessible"""
         try:
             version = k8s_client["core"].get_api_resources()
             assert version is not None
         except Exception as e:
             pytest.fail(f"Cannot access Kubernetes cluster: {e}")
 
-"""Verify all Kubernetes nodes are in Ready state"""
     def test_kubernetes_nodes_ready(self, k8s_client):
+        """Verify all Kubernetes nodes are in Ready state"""
         nodes = k8s_client["core"].list_node()
 
         assert len(nodes.items) > 0, "No nodes found in cluster"
@@ -55,16 +53,15 @@ class TestInfrastructure:
 
         assert len(not_ready) == 0, f"Nodes not ready: {not_ready}"
 
-
-"""Verify expected number of nodes (1 master + 2 workers)"""
     def test_kubernetes_nodes_count(self, k8s_client):
+        """Verify expected number of nodes (1 master + 2 workers)"""
         nodes = k8s_client["core"].list_node()
 
         # Expected: 3 nodes total (1 master + 2 workers)
         assert len(nodes.items) >= 1, "At least 1 node should be present"
 
- """Verify system pods in kube-system namespace are running"""
     def test_kubernetes_system_pods_running(self, k8s_client):
+        """Verify system pods in kube-system namespace are running"""
         pods = k8s_client["core"].list_namespaced_pod(namespace="kube-system")
 
         assert len(pods.items) > 0, "No system pods found"
@@ -76,8 +73,8 @@ class TestInfrastructure:
 
         assert len(not_running) == 0, f"System pods not running: {not_running}"
 
-"""Verify CoreDNS pods are running"""
     def test_coredns_running(self, k8s_client):
+        """Verify CoreDNS pods are running"""
         pods = k8s_client["core"].list_namespaced_pod(
             namespace="kube-system",
             label_selector="k8s-app=kube-dns"
@@ -89,8 +86,8 @@ class TestInfrastructure:
             assert pod.status.phase == "Running", \
                 f"CoreDNS pod {pod.metadata.name} not running: {pod.status.phase}"
 
-"""Test DNS resolution within cluster"""
     def test_dns_resolution(self, kubectl_exec):
+        """Test DNS resolution within cluster"""
         result = kubectl_exec([
             "run", "dns-test",
             "--image=busybox:latest",
@@ -101,8 +98,8 @@ class TestInfrastructure:
 
         assert result.returncode == 0, f"DNS resolution failed: {result.stderr}"
 
-"""Test basic pod-to-pod networking"""
     def test_pod_network_connectivity(self, k8s_client, kubectl_exec):
+        """Test basic pod-to-pod networking"""
         # Create a test pod
         result = kubectl_exec([
             "run", "network-test",
@@ -133,8 +130,8 @@ class TestInfrastructure:
 
         # The test might fail if pod doesn't have a service, but at least we try
 
-"""Verify storage class is available"""
     def test_storage_class_available(self, k8s_client):
+        """Verify storage class is available"""
         from kubernetes.client import StorageV1Api
 
         storage_api = StorageV1Api()
@@ -142,8 +139,8 @@ class TestInfrastructure:
 
         assert len(storage_classes.items) > 0, "No storage classes found"
 
-"""Test ability to create namespaces"""
     def test_namespace_creation(self, k8s_client):
+        """Test ability to create namespaces"""
         from kubernetes.client import V1Namespace, V1ObjectMeta
 
         test_namespace = "test-permissions"
@@ -173,8 +170,8 @@ class TestInfrastructure:
 
         assert created, "Cannot create namespaces"
 
-"""Verify that nodes have sufficient resources"""
     def test_node_resources_sufficient(self, k8s_client):
+        """Verify that nodes have sufficient resources"""
         nodes = k8s_client["core"].list_node()
 
         for node in nodes.items:
@@ -205,8 +202,8 @@ class TestInfrastructure:
             assert cpu_value >= 1, f"Node {node.metadata.name} has insufficient CPU: {cpu}"
             assert memory_value >= 1, f"Node {node.metadata.name} has insufficient memory: {memory}"
 
-"""Verify kubectl has necessary permissions"""
     def test_kubectl_permissions(self, kubectl_exec):
+        """Verify kubectl has necessary permissions"""
         # Test basic operations
         operations = [
             (["get", "nodes"], "Cannot list nodes"),
@@ -218,8 +215,8 @@ class TestInfrastructure:
             result = kubectl_exec(cmd, check=False)
             assert result.returncode == 0, f"{error_msg}: {result.stderr}"
 
-"""Verify Kubernetes version is supported"""
     def test_cluster_version_supported(self, k8s_client):
+        """Verify Kubernetes version is supported"""
         version_info = k8s_client["core"].get_api_resources()
 
         # Get actual version
@@ -236,8 +233,8 @@ class TestInfrastructure:
             # Check server version exists
             assert "serverVersion" in version_data, "Cannot determine Kubernetes version"
 
-"""Check if metrics server is available (optional but recommended)"""
     def test_metrics_server_available(self, kubectl_exec):
+        """Check if metrics server is available (optional but recommended)"""
         result = kubectl_exec(
             ["top", "nodes"],
             check=False
@@ -247,15 +244,15 @@ class TestInfrastructure:
         if result.returncode != 0:
             pytest.skip("Metrics server not available (optional)")
 
-"""Verify network policies are supported"""
     def test_network_policies_supported(self, k8s_client):
+        """Verify network policies are supported"""
         # Check if NetworkPolicy API is available
         apis = k8s_client["core"].get_api_resources()
         # This is a basic check - actual support depends on CNI
 
-"""Test internet connectivity from cluster"""
     @pytest.mark.slow
     def test_internet_connectivity(self, kubectl_exec):
+        """Test internet connectivity from cluster"""
         result = kubectl_exec([
             "run", "internet-test",
             "--image=curlimages/curl:latest",
@@ -268,8 +265,8 @@ class TestInfrastructure:
         if result.returncode != 0:
             pytest.skip("No internet connectivity (might be by design)")
 
-"""Get cluster info for debugging"""
     def test_cluster_info(self, kubectl_exec):
+        """Get cluster info for debugging"""
         result = kubectl_exec(["cluster-info"], check=False)
         assert result.returncode == 0, "Cannot get cluster info"
         print(f"\nCluster Info:\n{result.stdout}")

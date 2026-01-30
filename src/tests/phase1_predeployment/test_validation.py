@@ -12,12 +12,12 @@ import hcl2
 import yaml
 
 
-"""Pre-deployment validation tests"""
 @pytest.mark.phase1
 class TestPreDeployment:
-    
-"""Verify Terraform is installed"""
+    """Pre-deployment validation tests"""
+
     def test_terraform_installed(self):
+        """Verify Terraform is installed"""
         result = subprocess.run(
             ["terraform", "version"],
             capture_output=True,
@@ -26,8 +26,8 @@ class TestPreDeployment:
         assert result.returncode == 0, "Terraform not found"
         assert "Terraform v" in result.stdout
 
-"""Verify kubectl is installed"""
     def test_kubectl_installed(self):
+        """Verify kubectl is installed"""
         result = subprocess.run(
             ["kubectl", "version", "--client"],
             capture_output=True,
@@ -36,11 +36,12 @@ class TestPreDeployment:
         assert result.returncode == 0, "kubectl not found"
 
     def test_python_version(self):
+        """Verify Python version meets requirements"""
         import sys
         assert sys.version_info >= (3, 9), f"Python 3.9+ required, got {sys.version}"
 
-"""Verify required Python packages are available"""
     def test_required_python_packages(self):
+        """Verify required Python packages are available"""
         required_packages = [
             "pytest",
             "kubernetes",
@@ -54,8 +55,8 @@ class TestPreDeployment:
             except ImportError:
                 pytest.fail(f"Required package '{package}' not installed")
 
-"""Verify project directory structure"""
     def test_project_structure(self, test_config):
+        """Verify project directory structure"""
         required_dirs = [
             test_config["terraform_dir"],
             test_config["workloads_dir"],
@@ -66,6 +67,7 @@ class TestPreDeployment:
             assert directory.exists(), f"Directory not found: {directory}"
 
     def test_terraform_files_exist(self, test_config):
+        """Verify required Terraform files exist"""
         terraform_dir = test_config["terraform_dir"]
         required_files = [
             "main.tf",
@@ -79,6 +81,7 @@ class TestPreDeployment:
             assert file_path.exists(), f"Terraform file not found: {file_path}"
 
     def test_terraform_syntax_valid(self, test_config):
+        """Verify Terraform syntax is valid"""
         result = subprocess.run(
             ["terraform", "init", "-backend=false"],
             cwd=test_config["terraform_dir"],
@@ -105,6 +108,7 @@ class TestPreDeployment:
         # fmt returns 0 if formatted, 3 if formatting needed - both are ok for syntax
 
     def test_kubernetes_manifests_valid(self, test_config):
+        """Verify Kubernetes manifests are valid YAML"""
         workloads_dir = test_config["workloads_dir"]
 
         for yaml_file in workloads_dir.glob("*.yaml"):
@@ -125,6 +129,7 @@ class TestPreDeployment:
                     pytest.fail(f"Invalid YAML in {yaml_file}: {e}")
 
     def test_benchmark_scripts_exist(self, test_config):
+        """Verify benchmark scripts exist"""
         benchmarks_dir = test_config["benchmarks_dir"]
         required_scripts = [
             "http-load-test.sh",
@@ -137,8 +142,8 @@ class TestPreDeployment:
             assert script_path.exists(), f"Script not found: {script_path}"
             assert os.access(script_path, os.X_OK), f"Script not executable: {script_path}"
 
-"""Verify benchmark scripts have proper shebang"""
     def test_benchmark_scripts_have_shebang(self, test_config):
+        """Verify benchmark scripts have proper shebang"""
         benchmarks_dir = test_config["benchmarks_dir"]
 
         for script in benchmarks_dir.glob("*.sh"):
@@ -146,8 +151,8 @@ class TestPreDeployment:
                 first_line = f.readline()
                 assert first_line.startswith("#!"), f"Missing shebang in {script}"
 
-"""Check that required environment variables are documented"""
     def test_environment_variables_documented(self, test_config):
+        """Check that required environment variables are documented"""
         readme_path = test_config["project_root"] / "README.md"
         assert readme_path.exists(), "README.md not found"
 
@@ -164,9 +169,8 @@ class TestPreDeployment:
         for mention in required_mentions:
             assert mention in readme_content, f"'{mention}' not documented in README"
 
-
-"""Verify .gitignore excludes sensitive files!!!"""
     def test_gitignore_has_sensitive_files(self, test_config):
+        """Verify .gitignore excludes sensitive files"""
         gitignore_path = test_config["project_root"] / ".gitignore"
 
         if gitignore_path.exists():
@@ -183,9 +187,8 @@ class TestPreDeployment:
                 assert pattern in gitignore_content, \
                     f"Sensitive pattern '{pattern}' not in .gitignore"
 
-
-"""Scan for potential hardcoded credentials"""
     def test_no_hardcoded_credentials(self, test_config):
+        """Scan for potential hardcoded credentials"""
         suspicious_patterns = [
             "password=",
             "secret=",
@@ -209,8 +212,8 @@ class TestPreDeployment:
                                 f"Potential hardcoded credential in {tf_file}:{i}: {line.strip()}"
                             )
 
-"""Verify workloads have health checks defined"""
     def test_workload_health_checks_defined(self, test_config):
+        """Verify workloads have health checks defined"""
         workloads_dir = test_config["workloads_dir"]
 
         for yaml_file in workloads_dir.glob("*-service.yaml"):
@@ -233,9 +236,8 @@ class TestPreDeployment:
                     assert has_liveness or has_readiness, \
                         f"No health probes in {yaml_file} for container {container.get('name')}"
 
-
-"""Verify workloads have resource limits"""
     def test_workload_resource_limits_defined(self, test_config):
+        """Verify workloads have resource limits"""
         workloads_dir = test_config["workloads_dir"]
 
         for yaml_file in workloads_dir.glob("*-service.yaml"):
@@ -257,9 +259,8 @@ class TestPreDeployment:
                     assert "requests" in resources or "limits" in resources, \
                         f"No resource limits in {yaml_file} for container {container.get('name')}"
 
-
-"""Verify Makefile has required targets"""
     def test_makefile_targets_exist(self, test_config):
+        """Verify Makefile has required targets"""
         makefile_path = test_config["project_root"] / "Makefile"
         assert makefile_path.exists(), "Makefile not found"
 
