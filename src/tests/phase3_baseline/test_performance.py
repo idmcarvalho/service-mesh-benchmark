@@ -8,40 +8,41 @@ import time
 import json
 
 
-"""Test baseline workload deployment and health"""
 @pytest.mark.phase3
 @pytest.mark.integration
 class TestBaselineDeployment:
-    """Deploy baseline HTTP workload"""
+    """Test baseline workload deployment and health"""
+
     def test_deploy_baseline_http(self, kubectl_exec, test_config):
+        """Deploy baseline HTTP workload"""
         result = kubectl_exec([
             "apply", "-f",
             str(test_config["workloads_dir"] / "baseline-http-service.yaml")
         ])
         assert result.returncode == 0, f"Failed to deploy baseline HTTP: {result.stderr}"
 
-"""Deploy baseline gRPC workload"""
     def test_deploy_baseline_grpc(self, kubectl_exec, test_config):
+        """Deploy baseline gRPC workload"""
         result = kubectl_exec([
             "apply", "-f",
             str(test_config["workloads_dir"] / "baseline-grpc-service.yaml")
         ])
         assert result.returncode == 0, f"Failed to deploy baseline gRPC: {result.stderr}"
 
-"""Verify baseline-http namespace exists"""
     def test_baseline_http_namespace_exists(self, k8s_client):
+        """Verify baseline-http namespace exists"""
         namespaces = k8s_client["core"].list_namespace()
         namespace_names = [ns.metadata.name for ns in namespaces.items]
         assert "baseline-http" in namespace_names
 
-"""Verify baseline-grpc namespace exists"""
     def test_baseline_grpc_namespace_exists(self, k8s_client):
+        """Verify baseline-grpc namespace exists"""
         namespaces = k8s_client["core"].list_namespace()
         namespace_names = [ns.metadata.name for ns in namespaces.items]
         assert "baseline-grpc" in namespace_names
 
-"""Wait for baseline HTTP pods to be ready"""
     def test_baseline_http_pods_ready(self, wait_for_pods):
+        """Wait for baseline HTTP pods to be ready"""
         ready = wait_for_pods(
             namespace="baseline-http",
             label_selector="app=baseline-http-server",
@@ -49,8 +50,8 @@ class TestBaselineDeployment:
         )
         assert ready, "Baseline HTTP pods did not become ready in time"
 
-"""Wait for baseline gRPC pods to be ready"""
     def test_baseline_grpc_pods_ready(self, wait_for_pods):
+        """Wait for baseline gRPC pods to be ready"""
         ready = wait_for_pods(
             namespace="baseline-grpc",
             label_selector="app=baseline-grpc-server",
@@ -58,20 +59,20 @@ class TestBaselineDeployment:
         )
         assert ready, "Baseline gRPC pods did not become ready in time"
 
-"""Verify baseline HTTP service exists"""
     def test_baseline_http_service_exists(self, k8s_client):
+        """Verify baseline HTTP service exists"""
         services = k8s_client["core"].list_namespaced_service(namespace="baseline-http")
         service_names = [svc.metadata.name for svc in services.items]
         assert "baseline-http-server" in service_names
 
-"""Verify baseline gRPC service exists"""
     def test_baseline_grpc_service_exists(self, k8s_client):
+        """Verify baseline gRPC service exists"""
         services = k8s_client["core"].list_namespaced_service(namespace="baseline-grpc")
         service_names = [svc.metadata.name for svc in services.items]
         assert "baseline-grpc-server" in service_names
 
-"""Verify baseline HTTP service has ready endpoints"""
     def test_baseline_http_endpoints_ready(self, k8s_client):
+        """Verify baseline HTTP service has ready endpoints"""
         endpoints = k8s_client["core"].read_namespaced_endpoints(
             name="baseline-http-server",
             namespace="baseline-http"
@@ -81,8 +82,8 @@ class TestBaselineDeployment:
         assert len(endpoints.subsets) > 0, "No endpoint subsets"
         assert len(endpoints.subsets[0].addresses) > 0, "No ready addresses in endpoints"
 
-"""Test HTTP connectivity to baseline service"""
     def test_baseline_http_connectivity(self, kubectl_exec):
+        """Test HTTP connectivity to baseline service"""
         result = kubectl_exec(
             [
                 "run", "test-baseline-http",
@@ -99,8 +100,8 @@ class TestBaselineDeployment:
         assert result.returncode == 0, f"HTTP connectivity test failed: {result.stderr}"
         assert "HTTP Benchmark Response" in result.stdout or result.stdout != ""
 
-"""Test HTTP health endpoint"""
     def test_baseline_http_health_endpoint(self, kubectl_exec):
+        """Test HTTP health endpoint"""
         result = kubectl_exec(
             [
                 "run", "test-baseline-http-health",
@@ -117,9 +118,8 @@ class TestBaselineDeployment:
         assert result.returncode == 0, f"Health check failed: {result.stderr}"
         assert "OK" in result.stdout
 
-
-"""Test gRPC connectivity to baseline service"""
     def test_baseline_grpc_connectivity(self, kubectl_exec):
+        """Test gRPC connectivity to baseline service"""
         result = kubectl_exec(
             [
                 "run", "test-baseline-grpc",
@@ -136,8 +136,8 @@ class TestBaselineDeployment:
 
         assert result.returncode == 0, f"gRPC connectivity test failed: {result.stderr}"
 
-"""Check baseline HTTP pod logs for errors"""
     def test_baseline_http_pod_logs(self, k8s_client):
+        """Check baseline HTTP pod logs for errors"""
         pods = k8s_client["core"].list_namespaced_pod(
             namespace="baseline-http",
             label_selector="app=baseline-http-server"
@@ -164,12 +164,12 @@ class TestBaselineDeployment:
                     print(f"Warning: Found potential errors in logs: {errors_found}")
 
 
-
-"""Baseline performance tests"""
 @pytest.mark.phase3
 @pytest.mark.integration
 @pytest.mark.slow
 class TestBaselinePerformance:
+    """Baseline performance tests"""
+
     def test_baseline_http_load_test(self, run_benchmark, test_config):
         """Run baseline HTTP load test"""
         results = run_benchmark(
@@ -196,8 +196,8 @@ class TestBaselinePerformance:
         print(f"  Requests/sec: {results['metrics']['requests_per_sec']}")
         print(f"  Avg Latency: {results['metrics']['avg_latency_ms']}ms")
 
-"""Run baseline gRPC load test"""
     def test_baseline_grpc_load_test(self, run_benchmark, test_config):
+        """Run baseline gRPC load test"""
         results = run_benchmark(
             "grpc-test.sh",
             env_vars={
@@ -215,8 +215,8 @@ class TestBaselinePerformance:
 
         print(f"\nBaseline gRPC Performance saved to {baseline_file}")
 
-"""Measure baseline resource usage"""
     def test_baseline_resource_usage(self, k8s_client, kubectl_exec, test_config):
+        """Measure baseline resource usage"""
         # Get pod metrics
         result = kubectl_exec(
             ["top", "pods", "-n", "baseline-http"],
@@ -264,8 +264,8 @@ class TestBaselinePerformance:
         print(f"  CPU: {total_cpu}m")
         print(f"  Memory: {total_memory}Mi")
 
-"""Verify baseline error rate is acceptable"""
     def test_baseline_error_rate(self, kubectl_exec):
+        """Verify baseline error rate is acceptable"""
         # Run a quick load test and check for errors
         # This is a simplified check - full error rate testing is in load tests
 

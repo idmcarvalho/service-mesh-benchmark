@@ -8,10 +8,11 @@ import time
 import json
 
 
-"""Test service mesh deployment"""
 @pytest.mark.phase4
 @pytest.mark.integration
 class TestServiceMeshDeployment:
+    """Test service mesh deployment"""
+
     def test_service_mesh_installed(self, k8s_client, mesh_type):
         """Verify service mesh is installed"""
         if mesh_type == "baseline":
@@ -54,8 +55,8 @@ class TestServiceMeshDeployment:
             assert any("consul-server" in name for name in pod_names), "Consul server not found"
             assert any("consul-connect-injector" in name for name in pod_names), "Consul connect-injector not found"
 
-    """Deploy workloads with service mesh"""
     def test_deploy_workloads_with_mesh(self, kubectl_exec, test_config):
+        """Deploy workloads with service mesh"""
         workloads = [
             "http-service.yaml",
             "grpc-service.yaml",
@@ -68,8 +69,8 @@ class TestServiceMeshDeployment:
             ])
             assert result.returncode == 0, f"Failed to deploy {workload}: {result.stderr}"
 
-    """Wait for workload pods to be ready"""
     def test_workload_pods_ready(self, wait_for_pods, mesh_type):
+        """Wait for workload pods to be ready"""
         if mesh_type == "baseline":
             pytest.skip("Baseline mode")
 
@@ -86,8 +87,8 @@ class TestServiceMeshDeployment:
             )
             assert ready, f"Pods in {namespace} did not become ready"
 
-    """Verify sidecar proxies are injected"""
     def test_sidecar_injection(self, k8s_client, mesh_type):
+        """Verify sidecar proxies are injected"""
         if mesh_type == "baseline":
             pytest.skip("Baseline mode - no sidecars")
 
@@ -117,9 +118,9 @@ class TestServiceMeshDeployment:
                 # Consul uses "consul-connect-envoy-sidecar" or "envoy-sidecar"
                 assert any("consul" in name or "envoy-sidecar" in name for name in container_names), \
                     f"Consul sidecar not injected in pod {pod.metadata.name}"
-    
-    """Test connectivity through service mesh"""
+
     def test_service_mesh_connectivity(self, kubectl_exec, mesh_type):
+        """Test connectivity through service mesh"""
         if mesh_type == "baseline":
             pytest.skip("Baseline mode")
 
@@ -138,8 +139,8 @@ class TestServiceMeshDeployment:
 
         assert result.returncode == 0, f"Connectivity test failed: {result.stderr}"
 
-    """Verify mTLS is enabled (Istio/Linkerd)"""
     def test_mtls_enabled(self, kubectl_exec, mesh_type):
+        """Verify mTLS is enabled (Istio/Linkerd)"""
         if mesh_type == "baseline":
             pytest.skip("Baseline mode")
 
@@ -173,13 +174,14 @@ class TestServiceMeshDeployment:
             assert result.returncode == 0, "Consul Connect injector not found"
 
 
-"""Service mesh performance tests"""
 @pytest.mark.phase4
 @pytest.mark.integration
 @pytest.mark.slow
-"""Run HTTP load test with service mesh"""
 class TestServiceMeshPerformance:
+    """Service mesh performance tests"""
+
     def test_http_load_with_mesh(self, run_benchmark, test_config, mesh_type):
+        """Run HTTP load test with service mesh"""
         if mesh_type == "baseline":
             pytest.skip("Baseline mode")
 
@@ -207,8 +209,8 @@ class TestServiceMeshPerformance:
         print(f"  Requests/sec: {results['metrics']['requests_per_sec']}")
         print(f"  Avg Latency: {results['metrics']['avg_latency_ms']}ms")
 
-    """Run gRPC load test with service mesh"""
     def test_grpc_load_with_mesh(self, run_benchmark, test_config, mesh_type):
+        """Run gRPC load test with service mesh"""
         if mesh_type == "baseline":
             pytest.skip("Baseline mode")
 
@@ -229,8 +231,8 @@ class TestServiceMeshPerformance:
 
         print(f"\n{mesh_type.upper()} gRPC Performance saved to {mesh_file}")
 
-    """Measure service mesh resource overhead"""
     def test_mesh_overhead(self, kubectl_exec, test_config, mesh_type):
+        """Measure service mesh resource overhead"""
         if mesh_type == "baseline":
             pytest.skip("Baseline mode")
 
@@ -326,8 +328,8 @@ class TestServiceMeshPerformance:
         print(f"  Control Plane - CPU: {control_plane_cpu}m, Memory: {control_plane_memory}Mi")
         print(f"  Data Plane - CPU: {data_plane_cpu}m, Memory: {data_plane_memory}Mi")
 
-    """Compare latency overhead vs baseline"""
     def test_latency_overhead(self, test_config, mesh_type):
+        """Compare latency overhead vs baseline"""
         if mesh_type == "baseline":
             pytest.skip("Baseline mode")
 
