@@ -117,7 +117,7 @@ class TestServiceMeshDeployment:
                 # Consul uses "consul-connect-envoy-sidecar" or "envoy-sidecar"
                 assert any("consul" in name or "envoy-sidecar" in name for name in container_names), \
                     f"Consul sidecar not injected in pod {pod.metadata.name}"
-    
+
     """Test connectivity through service mesh"""
     def test_service_mesh_connectivity(self, kubectl_exec, mesh_type):
         if mesh_type == "baseline":
@@ -248,7 +248,7 @@ class TestServiceMeshPerformance:
         data_plane_cpu = 0
         data_plane_memory = 0
 
-        lines = result.stdout.strip().split('\n')[1:]  # Skip header
+        lines = result.stdout.strip().split("\n")[1:]  # Skip header
 
         for line in lines:
             parts = line.split()
@@ -261,12 +261,12 @@ class TestServiceMeshPerformance:
             memory = parts[3]
 
             # Parse CPU
-            cpu_value = int(cpu[:-1]) if cpu.endswith('m') else int(cpu) * 1000
+            cpu_value = int(cpu[:-1]) if cpu.endswith("m") else int(cpu) * 1000
 
             # Parse Memory
-            if memory.endswith('Mi'):
+            if memory.endswith("Mi"):
                 memory_value = int(memory[:-2])
-            elif memory.endswith('Gi'):
+            elif memory.endswith("Gi"):
                 memory_value = int(memory[:-2]) * 1024
             else:
                 memory_value = 0

@@ -8,7 +8,8 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
 import pytest
-from kubernetes import client, config as k8s_config
+from kubernetes import client
+from kubernetes import config as k8s_config
 
 from src.common.paths import paths
 from src.tests.models import MeshType, TestConfig
@@ -61,7 +62,7 @@ def mesh_type(request: pytest.FixtureRequest) -> str:
 
 
 @pytest.fixture(scope="session")
-def test_config(request: pytest.FixtureRequest) -> Dict[str, Any]:
+def test_config(request: pytest.FixtureRequest) -> dict[str, Any]:
     """Global test configuration as dictionary.
 
     Returns dict instead of Pydantic model for easier access in tests.
@@ -83,7 +84,7 @@ def test_config(request: pytest.FixtureRequest) -> Dict[str, Any]:
 
 
 @pytest.fixture(scope="session")
-def k8s_client(test_config: Dict[str, Any]) -> Dict[str, Any]:
+def k8s_client(test_config: dict[str, Any]) -> dict[str, Any]:
     """Kubernetes API client."""
     try:
         k8s_config.load_kube_config(config_file=str(test_config["kubeconfig"]))
@@ -98,7 +99,7 @@ def k8s_client(test_config: Dict[str, Any]) -> Dict[str, Any]:
 
 
 @pytest.fixture(scope="session")
-def terraform_outputs(test_config: Dict[str, Any]) -> Dict[str, Any]:
+def terraform_outputs(test_config: dict[str, Any]) -> dict[str, Any]:
     """Get Terraform outputs."""
     try:
         result = subprocess.run(
@@ -134,7 +135,7 @@ def kubectl_exec() -> Callable[[list[str], Optional[str], bool], subprocess.Comp
 
 
 @pytest.fixture(scope="function")
-def wait_for_pods(k8s_client: Dict[str, Any]) -> Callable[[str, str, int], bool]:
+def wait_for_pods(k8s_client: dict[str, Any]) -> Callable[[str, str, int], bool]:
     """Wait for pods to be ready.
 
     Args:
@@ -188,7 +189,7 @@ def wait_for_pods(k8s_client: Dict[str, Any]) -> Callable[[str, str, int], bool]
 
 
 @pytest.fixture(scope="function")
-def run_benchmark() -> Callable[[str, Optional[Dict[str, str]]], Dict[str, Any]]:
+def run_benchmark() -> Callable[[str, Optional[dict[str, str]]], dict[str, Any]]:
     """Run a benchmark script.
 
     Args:
@@ -199,7 +200,7 @@ def run_benchmark() -> Callable[[str, Optional[Dict[str, str]]], Dict[str, Any]]
         Dictionary with results
     """
 
-    def _run(script_name: str, env_vars: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+    def _run(script_name: str, env_vars: Optional[dict[str, str]] = None) -> dict[str, Any]:
         script_path = BENCHMARKS_DIR / script_name
 
         if not script_path.exists():
@@ -215,7 +216,7 @@ def run_benchmark() -> Callable[[str, Optional[Dict[str, str]]], Dict[str, Any]]
             env=env,
             capture_output=True,
             text=True,
-            timeout=600,  # 10 minute timeout
+            timeout=600, check=False,  # 10 minute timeout
         )
 
         # Try to find and parse the JSON output file
@@ -239,7 +240,6 @@ def run_benchmark() -> Callable[[str, Optional[Dict[str, str]]], Dict[str, Any]]
 def ensure_results_dir() -> None:
     """Ensure results directory exists."""
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    yield
     # Cleanup is optional - you might want to keep results
 
 

@@ -6,13 +6,12 @@ Runs the comprehensive test suite for service mesh benchmarking.
 Supports running tests in phases with proper sequencing.
 """
 import argparse
+import json
+import os
 import subprocess
 import sys
-import os
-from pathlib import Path
-import json
 import time
-
+from pathlib import Path
 
 """Run a command and return the result"""
 def run_command(cmd, cwd=None, env=None):
@@ -25,7 +24,7 @@ def run_command(cmd, cwd=None, env=None):
         cwd=cwd,
         env=env or os.environ.copy(),
         capture_output=False,
-        text=True
+        text=True, check=False
     )
 
     return result.returncode == 0

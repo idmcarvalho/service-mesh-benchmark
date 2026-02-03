@@ -3,7 +3,7 @@
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -139,7 +139,7 @@ class BenchmarkResult(BaseModel):
     latency: LatencyMetrics = Field(description="Latency metrics")
     throughput: ThroughputMetrics = Field(description="Throughput metrics")
     resources: Optional[ResourceMetrics] = Field(default=None, description="Resource metrics")
-    metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
+    metadata: dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
 
     class Config:
         """Pydantic configuration."""
@@ -193,8 +193,8 @@ class TestSummary(BaseModel):
     failed_tests: int = Field(ge=0, description="Number of failed tests")
     skipped_tests: int = Field(ge=0, description="Number of skipped tests")
     duration_seconds: float = Field(ge=0, description="Total test duration in seconds")
-    results: List[BenchmarkResult] = Field(default_factory=list, description="All test results")
-    comparisons: List[ComparisonResult] = Field(
+    results: list[BenchmarkResult] = Field(default_factory=list, description="All test results")
+    comparisons: list[ComparisonResult] = Field(
         default_factory=list, description="Comparison results"
     )
 
@@ -233,7 +233,7 @@ class NodeInfo(BaseModel):
 
     name: str = Field(description="Node name")
     status: str = Field(description="Node status")
-    roles: List[str] = Field(default_factory=list, description="Node roles")
+    roles: list[str] = Field(default_factory=list, description="Node roles")
     cpu_capacity: str = Field(description="Total CPU capacity")
     memory_capacity: str = Field(description="Total memory capacity")
     cpu_allocatable: str = Field(description="Allocatable CPU")
@@ -250,7 +250,7 @@ class PodInfo(BaseModel):
     status: str = Field(description="Pod status")
     node: Optional[str] = Field(default=None, description="Node name")
     ip: Optional[str] = Field(default=None, description="Pod IP")
-    containers: List[str] = Field(default_factory=list, description="Container names")
+    containers: list[str] = Field(default_factory=list, description="Container names")
     ready: bool = Field(default=False, description="Whether pod is ready")
 
 
@@ -260,7 +260,7 @@ class ServiceMeshStatus(BaseModel):
     mesh_type: MeshType = Field(description="Service mesh type")
     installed: bool = Field(description="Whether mesh is installed")
     version: Optional[str] = Field(default=None, description="Mesh version")
-    components: List[str] = Field(default_factory=list, description="Mesh components")
+    components: list[str] = Field(default_factory=list, description="Mesh components")
     healthy: bool = Field(default=False, description="Whether mesh is healthy")
     sidecar_injected: bool = Field(default=False, description="Whether sidecars are injected")
 
@@ -276,12 +276,12 @@ class eBPFMetrics(BaseModel):
     timestamp: datetime = Field(description="Measurement timestamp")
     duration_seconds: int = Field(gt=0, description="Measurement duration")
     total_events: int = Field(ge=0, description="Total events captured")
-    connections: Dict[str, Dict[str, Any]] = Field(
+    connections: dict[str, dict[str, Any]] = Field(
         default_factory=dict, description="Per-connection metrics"
     )
-    histogram: Dict[str, int] = Field(default_factory=dict, description="Latency histogram")
+    histogram: dict[str, int] = Field(default_factory=dict, description="Latency histogram")
     percentiles: LatencyMetrics = Field(description="Latency percentiles")
-    event_type_breakdown: Dict[str, int] = Field(
+    event_type_breakdown: dict[str, int] = Field(
         default_factory=dict, description="Event types breakdown"
     )
 
