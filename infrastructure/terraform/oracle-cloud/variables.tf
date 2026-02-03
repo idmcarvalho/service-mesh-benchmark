@@ -178,6 +178,17 @@ variable "subnet_cidr" {
   default     = "10.0.1.0/24"
 }
 
+# Fault Domain Configuration
+variable "fault_domain" {
+  description = "Fault domain for instances (1, 2, or 3). Set to 0 to let OCI choose."
+  type        = number
+  default     = 0
+  validation {
+    condition     = var.fault_domain >= 0 && var.fault_domain <= 3
+    error_message = "Fault domain must be 0 (auto), 1, 2, or 3."
+  }
+}
+
 # Tags
 variable "project_tags" {
   description = "Tags to apply to all resources"

@@ -1,11 +1,11 @@
 """Health check and system status endpoints."""
 
 from datetime import datetime
-from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 from fastapi import APIRouter
-from kubernetes import client, config as k8s_config
+from kubernetes import client
+from kubernetes import config as k8s_config
 
 from src.api.config import BENCHMARKS_DIR, EBPF_PROBE_DIR, RESULTS_DIR
 from src.api.models import HealthResponse
@@ -37,13 +37,13 @@ async def health_check() -> HealthResponse:
 
 
 @router.get("/status")
-async def system_status() -> Dict[str, Any]:
+async def system_status() -> dict[str, Any]:
     """Get detailed system status including running jobs and available benchmarks."""
     # Get all jobs
     all_jobs = await get_all_jobs()
 
     # Check Kubernetes connectivity
-    k8s_status: Dict[str, Any] = {"connected": False, "context": None, "version": None}
+    k8s_status: dict[str, Any] = {"connected": False, "context": None, "version": None}
     try:
         k8s_config.load_kube_config()
         version_info = client.VersionApi().get_code()

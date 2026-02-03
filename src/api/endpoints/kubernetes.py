@@ -1,9 +1,10 @@
 """Kubernetes integration endpoints."""
 
-from typing import Any, Dict, List
+from typing import Any
 
 from fastapi import APIRouter, HTTPException, status
-from kubernetes import client, config as k8s_config
+from kubernetes import client
+from kubernetes import config as k8s_config
 
 from src.api.config import MESH_COMPONENTS
 from src.tests.models import MeshType
@@ -12,7 +13,7 @@ router = APIRouter(prefix="/kubernetes", tags=["Kubernetes"])
 
 
 @router.get("/namespaces")
-async def list_namespaces() -> List[str]:
+async def list_namespaces() -> list[str]:
     """List Kubernetes namespaces."""
     try:
         k8s_config.load_kube_config()
@@ -22,12 +23,12 @@ async def list_namespaces() -> List[str]:
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Failed to connect to Kubernetes: {str(e)}",
+            detail=f"Failed to connect to Kubernetes: {e!s}",
         )
 
 
 @router.get("/services/{namespace}")
-async def list_services(namespace: str) -> List[Dict[str, Any]]:
+async def list_services(namespace: str) -> list[dict[str, Any]]:
     """List services in a namespace."""
     try:
         k8s_config.load_kube_config()
@@ -49,12 +50,12 @@ async def list_services(namespace: str) -> List[Dict[str, Any]]:
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Failed to list services: {str(e)}",
+            detail=f"Failed to list services: {e!s}",
         )
 
 
 @router.get("/pods/{namespace}")
-async def list_pods(namespace: str, label_selector: str = "") -> List[Dict[str, Any]]:
+async def list_pods(namespace: str, label_selector: str = "") -> list[dict[str, Any]]:
     """List pods in a namespace."""
     try:
         k8s_config.load_kube_config()
@@ -78,12 +79,12 @@ async def list_pods(namespace: str, label_selector: str = "") -> List[Dict[str, 
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Failed to list pods: {str(e)}",
+            detail=f"Failed to list pods: {e!s}",
         )
 
 
 @router.get("/mesh-status/{namespace}")
-async def get_mesh_status(namespace: str, mesh_type: MeshType) -> Dict[str, Any]:
+async def get_mesh_status(namespace: str, mesh_type: MeshType) -> dict[str, Any]:
     """Get service mesh status in a namespace."""
     try:
         k8s_config.load_kube_config()
@@ -112,12 +113,12 @@ async def get_mesh_status(namespace: str, mesh_type: MeshType) -> Dict[str, Any]
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Failed to get mesh status: {str(e)}",
+            detail=f"Failed to get mesh status: {e!s}",
         )
 
 
 @router.get("/nodes")
-async def list_nodes() -> List[Dict[str, Any]]:
+async def list_nodes() -> list[dict[str, Any]]:
     """List Kubernetes nodes."""
     try:
         k8s_config.load_kube_config()
@@ -141,5 +142,5 @@ async def list_nodes() -> List[Dict[str, Any]]:
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Failed to list nodes: {str(e)}",
+            detail=f"Failed to list nodes: {e!s}",
         )

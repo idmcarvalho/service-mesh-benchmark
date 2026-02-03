@@ -81,7 +81,7 @@ def mesh_type(request: pytest.FixtureRequest) -> str:
 
 
 @pytest.fixture(scope="session")
-def test_config(request: pytest.FixtureRequest) -> Dict[str, Any]:
+def test_config(request: pytest.FixtureRequest) -> dict[str, Any]:
     """Global test configuration as dictionary.
 
     Returns dict instead of Pydantic model for easier access in tests.
@@ -216,7 +216,7 @@ def k8s_client(request: pytest.FixtureRequest, test_config: Dict[str, Any]) -> D
 
 
 @pytest.fixture(scope="session")
-def terraform_outputs(test_config: Dict[str, Any]) -> Dict[str, Any]:
+def terraform_outputs(test_config: dict[str, Any]) -> dict[str, Any]:
     """Get Terraform outputs."""
     try:
         result = subprocess.run(
@@ -381,6 +381,7 @@ def run_benchmark(request: pytest.FixtureRequest) -> Callable[[str, Optional[Dic
                 "test_duration": env_vars.get("TEST_DURATION", "60") if env_vars else "60",
             }
 
+
         script_path = BENCHMARKS_DIR / script_name
 
         if not script_path.exists():
@@ -396,7 +397,7 @@ def run_benchmark(request: pytest.FixtureRequest) -> Callable[[str, Optional[Dic
             env=env,
             capture_output=True,
             text=True,
-            timeout=600,  # 10 minute timeout
+            timeout=600, check=False,  # 10 minute timeout
         )
 
         # Try to find and parse the JSON output file
@@ -420,7 +421,6 @@ def run_benchmark(request: pytest.FixtureRequest) -> Callable[[str, Optional[Dic
 def ensure_results_dir() -> None:
     """Ensure results directory exists."""
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    yield
     # Cleanup is optional - you might want to keep results
 
 

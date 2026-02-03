@@ -29,6 +29,13 @@ data "oci_core_images" "ubuntu" {
   sort_order                 = "DESC"
 }
 
+# Locals for fault domain configuration
+locals {
+  # Construct fault domain name (FAULT-DOMAIN-1, FAULT-DOMAIN-2, FAULT-DOMAIN-3)
+  # If fault_domain is 0, let OCI auto-select (null)
+  fault_domain_name = var.fault_domain > 0 ? "FAULT-DOMAIN-${var.fault_domain}" : null
+}
+
 # VCN (Virtual Cloud Network)
 resource "oci_core_vcn" "benchmark_vcn" {
   compartment_id = var.compartment_ocid
@@ -124,7 +131,14 @@ resource "oci_core_security_list" "benchmark_sl" {
     destination = "0.0.0.0/0"
     protocol    = "1" # ICMP
   }
-  
+
+  # Internal cluster communication (all protocols) - required for worker-master communication
+  egress_security_rules {
+    description = "Internal VCN communication"
+    destination = "10.0.0.0/16"
+    protocol    = "all"
+  }
+
   # Ingress - SSH (Restrict to your IP - set via variable)
   ingress_security_rules {
     protocol = "6" # TCP
@@ -140,6 +154,17 @@ resource "oci_core_security_list" "benchmark_sl" {
   ingress_security_rules {
     protocol = "6"
     source   = var.allowed_api_cidr
+
+    tcp_options {
+      min = 6443
+      max = 6443
+    }
+  }
+
+  # Ingress - Kubernetes API from VCN (for worker join via public IP)
+  ingress_security_rules {
+    protocol = "6"
+    source   = var.vcn_cidr
 
     tcp_options {
       min = 6443
@@ -175,9 +200,21 @@ resource "oci_core_security_list" "benchmark_sl" {
     source   = "0.0.0.0/0"
   }
   
-  # Ingress - Internal cluster communication
+  # Ingress - Internal cluster communication (all protocols)
   ingress_security_rules {
     protocol = "all"
+    source   = "10.0.0.0/16"
+  }
+
+  # Ingress - Internal TCP (explicit for OCI compatibility)
+  ingress_security_rules {
+    protocol = "6"  # TCP
+    source   = "10.0.0.0/16"
+  }
+
+  # Ingress - Internal UDP (explicit for OCI compatibility)
+  ingress_security_rules {
+    protocol = "17"  # UDP
     source   = "10.0.0.0/16"
   }
 }
@@ -200,7 +237,8 @@ resource "oci_core_instance" "k8s_master" {
   compartment_id      = var.compartment_ocid
   display_name        = "k8s-master-${var.test_type}"
   shape               = var.instance_shape
-  
+  fault_domain        = local.fault_domain_name
+
   shape_config {
     ocpus         = var.instance_ocpus
     memory_in_gbs = var.instance_memory_gb
@@ -236,12 +274,13 @@ resource "oci_core_instance" "k8s_master" {
 # Worker Nodes
 resource "oci_core_instance" "k8s_workers" {
   count = var.worker_count
-  
+
   availability_domain = data.oci_identity_availability_domains.ads.availability_domains[0].name
   compartment_id      = var.compartment_ocid
   display_name        = "k8s-worker-${count.index + 1}-${var.test_type}"
   shape               = var.instance_shape
-  
+  fault_domain        = local.fault_domain_name
+
   shape_config {
     ocpus         = var.worker_ocpus
     memory_in_gbs = var.worker_memory_gb
@@ -276,23 +315,24 @@ resource "oci_core_instance" "k8s_workers" {
   depends_on = [oci_core_instance.k8s_master]
 }
 
-# Load Balancer (para testes externos)
-resource "oci_load_balancer_load_balancer" "benchmark_lb" {
-  compartment_id = var.compartment_ocid
-  display_name   = "benchmark-lb"
-  shape          = "flexible"
-  
-  shape_details {
-    minimum_bandwidth_in_mbps = 10
-    maximum_bandwidth_in_mbps = 10
-  }
-  
-  subnet_ids = [oci_core_subnet.public_subnet.id]
-  
-  freeform_tags = {
-    "Project" = "ServiceMeshBenchmark"
-  }
-}
+# Load Balancer (temporarily disabled - uncomment after instances are created)
+# Free Tier allows only 1 flexible LB - will add after cluster is running
+# resource "oci_load_balancer_load_balancer" "benchmark_lb" {
+#   compartment_id = var.compartment_ocid
+#   display_name   = "benchmark-lb"
+#   shape          = "flexible"
+#
+#   shape_details {
+#     minimum_bandwidth_in_mbps = 10
+#     maximum_bandwidth_in_mbps = 10
+#   }
+#
+#   subnet_ids = [oci_core_subnet.public_subnet.id]
+#
+#   freeform_tags = {
+#     "Project" = "ServiceMeshBenchmark"
+#   }
+# }
 
 # Outputs are now in outputs.tf
 # Kubeconfig will be generated via provisioner scripts

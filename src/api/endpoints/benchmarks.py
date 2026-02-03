@@ -4,13 +4,13 @@ import asyncio
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, status
 
 from src.api.config import BENCHMARK_SCRIPTS, BENCHMARKS_DIR, RESULTS_DIR
 from src.api.models import BenchmarkRequest, BenchmarkResponse, JobStatus
-from src.api.state import update_job, set_job, get_job, delete_job, get_all_jobs
+from src.api.state import delete_job, get_all_jobs, get_job, set_job, update_job
 
 router = APIRouter(prefix="/benchmarks", tags=["Benchmarks"])
 
@@ -18,7 +18,7 @@ router = APIRouter(prefix="/benchmarks", tags=["Benchmarks"])
 async def run_benchmark_script(
     job_id: str,
     script_name: str,
-    env_vars: Dict[str, str],
+    env_vars: dict[str, str],
 ) -> None:
     """Run a benchmark script in the background."""
     script_path = BENCHMARKS_DIR / script_name
@@ -36,7 +36,7 @@ async def run_benchmark_script(
         await update_job(job_id, {"status": "running"})
 
         # Prepare environment
-        env: Dict[str, str] = {}
+        env: dict[str, str] = {}
         env.update(env_vars)
 
         # Run the script
@@ -146,11 +146,11 @@ async def start_benchmark(
     )
 
 
-@router.get("/jobs", response_model=List[JobStatus])
+@router.get("/jobs", response_model=list[JobStatus])
 async def list_jobs(
     status_filter: Optional[str] = Query(None, description="Filter by status"),
     test_type_filter: Optional[str] = Query(None, description="Filter by test type"),
-) -> List[JobStatus]:
+) -> list[JobStatus]:
     """List all benchmark jobs."""
     all_jobs = await get_all_jobs()
     jobs = list(all_jobs.values())
@@ -177,7 +177,7 @@ async def get_job_status(job_id: str) -> JobStatus:
 
 
 @router.get("/jobs/{job_id}/result")
-async def get_job_result(job_id: str) -> Dict[str, Any]:
+async def get_job_result(job_id: str) -> dict[str, Any]:
     """Get the result of a completed job."""
     job = await get_job(job_id)
     if not job:
@@ -207,7 +207,7 @@ async def get_job_result(job_id: str) -> Dict[str, Any]:
 
 
 @router.delete("/jobs/{job_id}")
-async def cancel_job(job_id: str) -> Dict[str, str]:
+async def cancel_job(job_id: str) -> dict[str, str]:
     """Cancel a running job (if possible) or remove from tracking."""
     job = await get_job(job_id)
     if not job:

@@ -203,7 +203,7 @@ class TestFailureScenarios:
 
         if logs_result.returncode == 0:
             success_count = logs_result.stdout.count("200")
-            total_count = len(logs_result.stdout.strip().split('\n'))
+            total_count = len(logs_result.stdout.strip().split("\n"))
 
             success_rate = (success_count / total_count * 100) if total_count > 0 else 0
 

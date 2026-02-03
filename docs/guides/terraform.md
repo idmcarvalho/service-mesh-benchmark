@@ -1,10 +1,26 @@
 # Terraform Configuration for Oracle Cloud
 
-This directory contains Terraform configuration for deploying the Service Mesh Benchmark infrastructure to Oracle Cloud Infrastructure (OCI) Free Tier.
+This guide covers two Terraform deployment options for Oracle Cloud Infrastructure (OCI):
 
-## Quick Start
+## Deployment Options
+
+### 1. Single Instance Deployment (`infrastructure/terraform/single-instance/`)
+Simple single-VM deployment with Ansible integration. Ideal for basic testing and development.
+
+### 2. Kubernetes Cluster Deployment (`infrastructure/terraform/oracle-cloud/`)
+Full Kubernetes cluster with master and worker nodes, plus load balancer. For production-grade benchmarking.
+
+---
+
+## Single Instance Deployment
+
+Located in `infrastructure/terraform/single-instance/`. This configuration deploys a single instance and integrates with Ansible for application setup.
+
+### Quick Start
 
 ```bash
+cd infrastructure/terraform/single-instance
+
 # 1. Copy and configure variables
 cp terraform.tfvars.example terraform.tfvars
 vim terraform.tfvars  # Add your OCI credentials
@@ -58,7 +74,7 @@ After infrastructure is deployed:
 
 2. **Run Ansible playbooks**:
    ```bash
-   cd ../ansible
+   cd infrastructure/ansible
    ansible-playbook -i inventory/hosts.yml playbooks/setup-server.yml
    ansible-playbook -i inventory/hosts.yml playbooks/deploy-app.yml
    ```
@@ -73,4 +89,4 @@ terraform destroy
 
 ## Documentation
 
-See [../docs/TERRAFORM_ANSIBLE_DEPLOYMENT.md](../docs/TERRAFORM_ANSIBLE_DEPLOYMENT.md) for complete documentation.
+See [terraform-ansible-deployment.md](terraform-ansible-deployment.md) for complete documentation.

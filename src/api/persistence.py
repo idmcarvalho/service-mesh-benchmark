@@ -4,11 +4,11 @@ This module provides optional persistence of benchmark jobs to JSON files,
 allowing job history to survive API restarts without requiring a database.
 """
 
-import json
 import asyncio
+import json
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 from src.api.config import RESULTS_DIR
 
@@ -29,7 +29,7 @@ class JobPersistence:
         # Ensure directory exists
         self.storage_dir.mkdir(parents=True, exist_ok=True)
 
-    async def save_job(self, job_id: str, job_data: Dict[str, Any]) -> None:
+    async def save_job(self, job_id: str, job_data: dict[str, Any]) -> None:
         """Save a single job to persistent storage.
 
         Args:
@@ -48,7 +48,7 @@ class JobPersistence:
             # Save back to file
             await self._save_jobs_dict(jobs)
 
-    async def load_job(self, job_id: str) -> Optional[Dict[str, Any]]:
+    async def load_job(self, job_id: str) -> Optional[dict[str, Any]]:
         """Load a single job from persistent storage.
 
         Args:
@@ -65,7 +65,7 @@ class JobPersistence:
                 return self._deserialize_job(job_data)
             return None
 
-    async def load_all_jobs(self) -> Dict[str, Dict[str, Any]]:
+    async def load_all_jobs(self) -> dict[str, dict[str, Any]]:
         """Load all jobs from persistent storage.
 
         Returns:
@@ -142,7 +142,7 @@ class JobPersistence:
 
         return deleted_count
 
-    async def get_stats(self) -> Dict[str, Any]:
+    async def get_stats(self) -> dict[str, Any]:
         """Get statistics about persisted jobs.
 
         Returns:
@@ -182,15 +182,15 @@ class JobPersistence:
 
     # Private helper methods
 
-    async def _load_jobs_dict(self) -> Dict[str, Dict[str, Any]]:
+    async def _load_jobs_dict(self) -> dict[str, dict[str, Any]]:
         """Load jobs dictionary from file."""
         if not self.jobs_file.exists():
             return {}
 
         try:
-            with open(self.jobs_file, "r") as f:
+            with open(self.jobs_file) as f:
                 return json.load(f)
-        except (json.JSONDecodeError, IOError) as e:
+        except (OSError, json.JSONDecodeError) as e:
             print(f"Warning: Failed to load jobs file: {e}")
             # Backup corrupted file
             if self.jobs_file.exists():
@@ -201,7 +201,7 @@ class JobPersistence:
                 print(f"Corrupted file backed up to: {backup_file}")
             return {}
 
-    async def _save_jobs_dict(self, jobs: Dict[str, Dict[str, Any]]) -> None:
+    async def _save_jobs_dict(self, jobs: dict[str, dict[str, Any]]) -> None:
         """Save jobs dictionary to file."""
         try:
             # Write to temporary file first
@@ -211,10 +211,10 @@ class JobPersistence:
 
             # Atomic rename
             temp_file.replace(self.jobs_file)
-        except IOError as e:
+        except OSError as e:
             print(f"Error: Failed to save jobs file: {e}")
 
-    def _serialize_job(self, job_data: Dict[str, Any]) -> Dict[str, Any]:
+    def _serialize_job(self, job_data: dict[str, Any]) -> dict[str, Any]:
         """Convert job data to JSON-serializable format."""
         serialized = job_data.copy()
 
@@ -226,7 +226,7 @@ class JobPersistence:
 
         return serialized
 
-    def _deserialize_job(self, job_data: Dict[str, Any]) -> Dict[str, Any]:
+    def _deserialize_job(self, job_data: dict[str, Any]) -> dict[str, Any]:
         """Convert stored job data back to runtime format."""
         # For now, keep as-is since we store as ISO strings
         # Could convert back to datetime objects if needed
@@ -249,7 +249,7 @@ def get_persistence() -> JobPersistence:
     return _persistence
 
 
-async def sync_job_to_persistence(job_id: str, job_data: Dict[str, Any]) -> None:
+async def sync_job_to_persistence(job_id: str, job_data: dict[str, Any]) -> None:
     """Convenience function to save a job to persistence.
 
     Args:
@@ -260,7 +260,7 @@ async def sync_job_to_persistence(job_id: str, job_data: Dict[str, Any]) -> None
     await persistence.save_job(job_id, job_data)
 
 
-async def load_jobs_from_persistence() -> Dict[str, Dict[str, Any]]:
+async def load_jobs_from_persistence() -> dict[str, dict[str, Any]]:
     """Convenience function to load all jobs from persistence.
 
     Returns:

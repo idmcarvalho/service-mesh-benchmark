@@ -43,7 +43,7 @@ Configuration templates for various environments:
 ### Production Deployment
 1. Copy and customize templates:
    ```bash
-   cp config/templates/terraform.tfvars.example terraform/oracle-cloud/terraform.tfvars
+   cp config/templates/terraform.tfvars.example infrastructure/terraform/oracle-cloud/terraform.tfvars
    cp config/templates/.env.example .env
    ```
 

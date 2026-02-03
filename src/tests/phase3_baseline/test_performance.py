@@ -227,7 +227,7 @@ class TestBaselinePerformance:
             pytest.skip("Metrics server not available")
 
         # Parse metrics
-        lines = result.stdout.strip().split('\n')[1:]  # Skip header
+        lines = result.stdout.strip().split("\n")[1:]  # Skip header
         total_cpu = 0
         total_memory = 0
 
@@ -238,13 +238,13 @@ class TestBaselinePerformance:
                 memory = parts[2]  # e.g., "50Mi"
 
                 # Parse CPU (millicores)
-                if cpu.endswith('m'):
+                if cpu.endswith("m"):
                     total_cpu += int(cpu[:-1])
                 else:
                     total_cpu += int(cpu) * 1000
 
                 # Parse Memory (Mi)
-                if memory.endswith('Mi'):
+                if memory.endswith("Mi"):
                     total_memory += int(memory[:-2])
 
         # Store baseline resource usage

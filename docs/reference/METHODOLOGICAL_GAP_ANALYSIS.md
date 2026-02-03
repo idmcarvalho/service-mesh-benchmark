@@ -698,10 +698,10 @@ This is the project's **biggest technical limitation**. The eBPF probes are:
 
 **1. Complete Infrastructure as Code**
 
-Location: [terraform/oracle-cloud/](terraform/oracle-cloud/)
+Location: [infrastructure/terraform/oracle-cloud/](infrastructure/terraform/oracle-cloud/)
 
 ```hcl
-# terraform/oracle-cloud/main.tf
+# infrastructure/terraform/oracle-cloud/main.tf
 
 # VCN with public subnet
 resource "oci_core_vcn" "k8s_vcn" {
@@ -793,7 +793,7 @@ Location: [Makefile](Makefile) - 50+ targets
 ```makefile
 # One-command deployment
 deploy-infra:
-	cd terraform/oracle-cloud && terraform init && terraform apply -auto-approve
+	cd infrastructure/terraform/oracle-cloud && terraform init && terraform apply -auto-approve
 
 # One-command testing
 test-comprehensive:
@@ -805,7 +805,7 @@ test-comprehensive:
 
 # One-command cleanup
 destroy:
-	cd terraform/oracle-cloud && terraform destroy -auto-approve
+	cd infrastructure/terraform/oracle-cloud && terraform destroy -auto-approve
 ```
 
 **5. Comprehensive Documentation**
@@ -903,7 +903,7 @@ git clone <repo-url>
 cd service-mesh-benchmark
 
 # 2. Configure OCI credentials
-cp terraform/oracle-cloud/terraform.tfvars.example terraform/oracle-cloud/terraform.tfvars
+cp infrastructure/terraform/oracle-cloud/terraform.tfvars.example infrastructure/terraform/oracle-cloud/terraform.tfvars
 # Edit with your OCI credentials
 
 # 3. Deploy everything

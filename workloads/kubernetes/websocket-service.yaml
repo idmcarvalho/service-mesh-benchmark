@@ -1,0 +1,137 @@
+# WebSocket Service for Long-lived Connection Testing
+# Tests service mesh handling of persistent WebSocket connections
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: websocket-benchmark
+  labels:
+    benchmark: mesh
+    workload-type: websocket
+    istio-injection: enabled
+    linkerd.io/inject: enabled
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: websocket-server
+  namespace: websocket-benchmark
+  labels:
+    app: websocket-server
+    version: v1
+    benchmark: mesh
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: websocket-server
+  template:
+    metadata:
+      labels:
+        app: websocket-server
+        version: v1
+        benchmark: mesh
+      annotations:
+        sidecar.istio.io/inject: "true"
+        linkerd.io/inject: enabled
+    spec:
+      containers:
+      - name: websocket-echo
+        # Simple WebSocket echo server
+        image: jmalloc/echo-server:latest
+        ports:
+        - containerPort: 8080
+          name: http
+          protocol: TCP
+        env:
+        - name: PORT
+          value: "8080"
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 5
+      terminationGracePeriodSeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: websocket-server
+  namespace: websocket-benchmark
+  labels:
+    app: websocket-server
+    benchmark: mesh
+spec:
+  type: ClusterIP
+  selector:
+    app: websocket-server
+  ports:
+  - name: http
+    port: 80
+    targetPort: 8080
+    protocol: TCP
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: websocket-server-pdb
+  namespace: websocket-benchmark
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: websocket-server
+---
+# Istio DestinationRule for WebSocket
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: websocket-server
+  namespace: websocket-benchmark
+spec:
+  host: websocket-server.websocket-benchmark.svc.cluster.local
+  trafficPolicy:
+    connectionPool:
+      tcp:
+        maxConnections: 10000
+        connectTimeout: 30s
+      http:
+        h2UpgradePolicy: UPGRADE
+        http1MaxPendingRequests: 1000
+    loadBalancer:
+      simple: ROUND_ROBIN
+---
+# Istio VirtualService for WebSocket routing
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: websocket-server
+  namespace: websocket-benchmark
+spec:
+  hosts:
+  - websocket-server
+  http:
+  - match:
+    - headers:
+        upgrade:
+          exact: websocket
+    route:
+    - destination:
+        host: websocket-server
+        port:
+          number: 80
+    timeout: 0s  # No timeout for WebSocket connections

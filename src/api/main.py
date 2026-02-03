@@ -7,12 +7,10 @@ that use appropriate tools (ghz for gRPC, wrk for HTTP, etc.).
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 from kubernetes import config as k8s_config
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from src.api.config import RESULTS_DIR
-from src.api.settings import settings
 
 # Import all endpoint routers
 from src.api.endpoints import (
@@ -23,6 +21,7 @@ from src.api.endpoints import (
     metrics,
     reports,
 )
+from src.api.settings import settings
 
 # Initialize FastAPI app
 app = FastAPI(

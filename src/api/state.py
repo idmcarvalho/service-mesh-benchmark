@@ -1,28 +1,28 @@
 """Shared application state for tracking jobs."""
 
 import asyncio
-from typing import Any, Dict
+from typing import Any
 
 # Track running jobs across all endpoints
 # Using asyncio.Lock to prevent race conditions when multiple
 # async tasks modify the dictionary concurrently
-running_jobs: Dict[str, Dict[str, Any]] = {}
+running_jobs: dict[str, dict[str, Any]] = {}
 _jobs_lock = asyncio.Lock()
 
 
-async def get_job(job_id: str) -> Dict[str, Any] | None:
+async def get_job(job_id: str) -> dict[str, Any] | None:
     """Get a job by ID in a thread-safe manner."""
     async with _jobs_lock:
         return running_jobs.get(job_id)
 
 
-async def set_job(job_id: str, job_data: Dict[str, Any]) -> None:
+async def set_job(job_id: str, job_data: dict[str, Any]) -> None:
     """Set/create a job in a thread-safe manner."""
     async with _jobs_lock:
         running_jobs[job_id] = job_data
 
 
-async def update_job(job_id: str, updates: Dict[str, Any]) -> None:
+async def update_job(job_id: str, updates: dict[str, Any]) -> None:
     """Update a job's fields in a thread-safe manner."""
     async with _jobs_lock:
         if job_id in running_jobs:
@@ -38,7 +38,7 @@ async def delete_job(job_id: str) -> bool:
         return False
 
 
-async def get_all_jobs() -> Dict[str, Dict[str, Any]]:
+async def get_all_jobs() -> dict[str, dict[str, Any]]:
     """Get a copy of all jobs in a thread-safe manner."""
     async with _jobs_lock:
         return running_jobs.copy()

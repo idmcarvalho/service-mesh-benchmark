@@ -55,9 +55,9 @@ import argparse
 import json
 import subprocess
 import time
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Optional
 
 import psutil
 
@@ -145,7 +145,7 @@ def capture_process_metrics(pid: int, duration: float) -> ProcessMetrics:
     start_io = proc.io_counters()
 
     # Get page faults from /proc/[pid]/stat
-    with open(f"/proc/{pid}/stat", "r") as f:
+    with open(f"/proc/{pid}/stat") as f:
         stat_line = f.read().split()
         start_minor_faults = int(stat_line[9])
         start_major_faults = int(stat_line[11])
@@ -160,7 +160,7 @@ def capture_process_metrics(pid: int, duration: float) -> ProcessMetrics:
     end_mem = proc.memory_info()
     end_io = proc.io_counters()
 
-    with open(f"/proc/{pid}/stat", "r") as f:
+    with open(f"/proc/{pid}/stat") as f:
         stat_line = f.read().split()
         end_minor_faults = int(stat_line[9])
         end_major_faults = int(stat_line[11])
@@ -374,19 +374,19 @@ def measure_ebpf_overhead(
     print("Overhead Analysis Results")
     print("=" * SEPARATOR_WIDTH)
     print()
-    print(f"Context Switches:")
+    print("Context Switches:")
     print(f"  Baseline:  {baseline_metrics.voluntary_context_switches + baseline_metrics.involuntary_context_switches:,}")
     print(f"  With eBPF: {ebpf_metrics.voluntary_context_switches + ebpf_metrics.involuntary_context_switches:,}")
     print(f"  Difference: {comparison.context_switch_diff:+,} ({comparison.context_switch_percent_change:+.2f}%)")
     print()
 
-    print(f"CPU Time:")
+    print("CPU Time:")
     print(f"  Baseline:  {baseline_metrics.user_cpu_time + baseline_metrics.system_cpu_time:.2f}s")
     print(f"  With eBPF: {ebpf_metrics.user_cpu_time + ebpf_metrics.system_cpu_time:.2f}s")
     print(f"  Difference: {comparison.cpu_time_diff_ms:+.2f}ms ({comparison.cpu_percent_change:+.2f}%)")
     print()
 
-    print(f"Memory (RSS):")
+    print("Memory (RSS):")
     print(f"  Baseline:  {baseline_metrics.rss_memory_kb:,} KB")
     print(f"  With eBPF: {ebpf_metrics.rss_memory_kb:,} KB")
     print(f"  Difference: {comparison.memory_diff_kb:+,} KB ({comparison.memory_percent_change:+.2f}%)")

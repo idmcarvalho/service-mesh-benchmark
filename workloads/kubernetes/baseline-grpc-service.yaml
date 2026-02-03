@@ -1,0 +1,206 @@
+# Baseline gRPC Service for Phase 3 Testing (ARM64 compatible)
+# This workload runs WITHOUT any service mesh to establish performance baselines
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: baseline-grpc
+  labels:
+    benchmark: baseline
+    workload-type: grpc
+    istio-injection: disabled
+    linkerd.io/inject: disabled
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grpc-server-code
+  namespace: baseline-grpc
+data:
+  server.py: |
+    #!/usr/bin/env python3
+    """Simple gRPC echo server for benchmarking."""
+    import grpc
+    from concurrent import futures
+    import time
+    import os
+
+    # Generate proto file and server code inline
+    PROTO_CONTENT = '''
+    syntax = "proto3";
+    package echo;
+
+    service EchoService {
+      rpc Echo(EchoRequest) returns (EchoResponse);
+      rpc ServerStreamingEcho(EchoRequest) returns (stream EchoResponse);
+    }
+
+    message EchoRequest {
+      string message = 1;
+    }
+
+    message EchoResponse {
+      string message = 1;
+      string hostname = 2;
+      int64 timestamp = 3;
+    }
+    '''
+
+    # Simple implementation without proto compilation
+    # Using reflection-like approach
+
+    import grpc
+    from grpc_reflection.v1alpha import reflection
+    from google.protobuf import descriptor_pb2
+
+    class EchoServicer:
+        def Echo(self, request, context):
+            return {
+                'message': request.message,
+                'hostname': os.environ.get('HOSTNAME', 'unknown'),
+                'timestamp': int(time.time() * 1000)
+            }
+
+    def serve():
+        server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
+        port = os.environ.get('GRPC_PORT', '9000')
+        server.add_insecure_port(f'[::]:{port}')
+        print(f'Starting gRPC server on port {port}')
+        server.start()
+        server.wait_for_termination()
+
+    if __name__ == '__main__':
+        serve()
+
+  simple_server.py: |
+    #!/usr/bin/env python3
+    """Ultra-simple TCP echo server for gRPC-like benchmarking."""
+    import socket
+    import threading
+    import os
+    import time
+    import json
+
+    def handle_client(conn, addr):
+        with conn:
+            while True:
+                data = conn.recv(4096)
+                if not data:
+                    break
+                # Echo back with metadata
+                response = {
+                    'data': data.decode('utf-8', errors='ignore')[:100],
+                    'hostname': os.environ.get('HOSTNAME', 'unknown'),
+                    'timestamp': int(time.time() * 1000)
+                }
+                conn.sendall(json.dumps(response).encode() + b'\n')
+
+    def main():
+        port = int(os.environ.get('PORT', '9000'))
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            s.bind(('0.0.0.0', port))
+            s.listen(100)
+            print(f'TCP Echo server listening on port {port}')
+            while True:
+                conn, addr = s.accept()
+                threading.Thread(target=handle_client, args=(conn, addr), daemon=True).start()
+
+    if __name__ == '__main__':
+        main()
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: baseline-grpc-server
+  namespace: baseline-grpc
+  labels:
+    app: baseline-grpc-server
+    version: v1
+    benchmark: baseline
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: baseline-grpc-server
+  template:
+    metadata:
+      labels:
+        app: baseline-grpc-server
+        version: v1
+        benchmark: baseline
+      annotations:
+        sidecar.istio.io/inject: "false"
+        linkerd.io/inject: disabled
+    spec:
+      containers:
+      - name: grpc-server
+        # Using python slim which has arm64 support
+        image: python:3.11-slim
+        command:
+        - python3
+        - /app/simple_server.py
+        ports:
+        - containerPort: 9000
+          name: grpc
+          protocol: TCP
+        env:
+        - name: PORT
+          value: "9000"
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi
+        livenessProbe:
+          tcpSocket:
+            port: 9000
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 5
+        readinessProbe:
+          tcpSocket:
+            port: 9000
+          initialDelaySeconds: 3
+          periodSeconds: 5
+          timeoutSeconds: 3
+        volumeMounts:
+        - name: server-code
+          mountPath: /app
+      volumes:
+      - name: server-code
+        configMap:
+          name: grpc-server-code
+          defaultMode: 0755
+      terminationGracePeriodSeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: baseline-grpc-server
+  namespace: baseline-grpc
+  labels:
+    app: baseline-grpc-server
+    benchmark: baseline
+spec:
+  type: ClusterIP
+  selector:
+    app: baseline-grpc-server
+  ports:
+  - name: grpc
+    port: 9000
+    targetPort: 9000
+    protocol: TCP
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: baseline-grpc-server-pdb
+  namespace: baseline-grpc
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: baseline-grpc-server

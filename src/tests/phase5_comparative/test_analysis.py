@@ -3,16 +3,16 @@ Phase 6: Comparative Analysis Tests
 
 Tests that compare performance across different service mesh implementations.
 """
-import pytest
 import json
 from pathlib import Path
+
+import pytest
 from tabulate import tabulate
 
-
 """Comparative analysis across service meshes"""
-@pytest.mark.phase6
+@pytest.mark.phase6()
 class TestComparativeAnalysis:
-    
+
     """Verify all metrics files exist"""
     def test_load_all_metrics(self, test_config):
         results_dir = test_config["results_dir"]
@@ -251,7 +251,7 @@ class TestComparativeAnalysis:
 
     """Determine best performing service mesh"""
     def test_determine_best_performer(self, test_config):
-    
+
         results_dir = test_config["results_dir"]
 
         meshes = []

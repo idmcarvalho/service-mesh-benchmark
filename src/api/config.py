@@ -1,8 +1,6 @@
 """API configuration and global settings."""
 
-from typing import Dict
 
-from src.api.settings import settings
 from src.common.paths import paths
 
 # Import paths from centralized configuration

@@ -275,7 +275,7 @@ resource "local_file" "ansible_inventory" {
     environment         = var.environment
     domain_name         = var.domain_name
   })
-  filename = "${path.module}/../ansible/inventory/hosts.yml"
+  filename = "${path.module}/../../ansible/inventory/hosts.yml"
 
   depends_on = [oci_core_instance.benchmark_instance]
 }

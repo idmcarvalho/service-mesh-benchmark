@@ -203,11 +203,11 @@ class TestPreDeployment:
 
             for pattern in suspicious_patterns:
                 # Allow variable declarations but not actual values
-                lines = content.split('\n')
+                lines = content.split("\n")
                 for i, line in enumerate(lines, 1):
-                    if pattern in line and not line.strip().startswith('#'):
+                    if pattern in line and not line.strip().startswith("#"):
                         # Check if it's a variable declaration (acceptable)
-                        if 'variable' not in line and 'var.' not in line:
+                        if "variable" not in line and "var." not in line:
                             pytest.fail(
                                 f"Potential hardcoded credential in {tf_file}:{i}: {line.strip()}"
                             )

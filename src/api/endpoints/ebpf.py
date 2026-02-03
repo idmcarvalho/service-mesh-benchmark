@@ -2,14 +2,13 @@
 
 import asyncio
 from datetime import datetime
-from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, status
 
 from src.api.config import EBPF_PROBE_DIR, RESULTS_DIR
 from src.api.models import eBPFProbeRequest, eBPFProbeResponse
-from src.api.state import update_job, set_job, get_all_jobs
+from src.api.state import get_all_jobs, set_job, update_job
 
 router = APIRouter(prefix="/ebpf", tags=["eBPF"])
 
@@ -123,7 +122,7 @@ async def start_ebpf_probe(
 
 
 @router.get("/probe/status")
-async def ebpf_probe_status() -> Dict[str, Any]:
+async def ebpf_probe_status() -> dict[str, Any]:
     """Check eBPF probe availability and status."""
     probe_path = (
         EBPF_PROBE_DIR / "daemon" / "target" / "release" / "latency-probe"

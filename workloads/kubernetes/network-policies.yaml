@@ -1,0 +1,89 @@
+# Cilium Network Policies for Benchmark Workloads
+# These policies enable L3/L4 filtering with eBPF
+
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: echo-server-policy
+  namespace: benchmark
+  labels:
+    app.kubernetes.io/name: echo-server-policy
+    app.kubernetes.io/component: security
+spec:
+  description: "Allow ingress to echo-server on port 80"
+  endpointSelector:
+    matchLabels:
+      app: echo-server
+  ingress:
+  - fromEndpoints:
+    - matchLabels:
+        app: load-generator
+    - matchLabels:
+        k8s:io.kubernetes.pod.namespace: benchmark
+    toPorts:
+    - ports:
+      - port: "80"
+        protocol: TCP
+  egress:
+  - toEndpoints:
+    - {}
+  - toEntities:
+    - cluster
+    - host
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: load-generator-policy
+  namespace: benchmark
+  labels:
+    app.kubernetes.io/name: load-generator-policy
+    app.kubernetes.io/component: security
+spec:
+  description: "Allow load-generator to access echo-server"
+  endpointSelector:
+    matchLabels:
+      app: load-generator
+  egress:
+  - toEndpoints:
+    - matchLabels:
+        app: echo-server
+    toPorts:
+    - ports:
+      - port: "80"
+        protocol: TCP
+  - toEntities:
+    - cluster
+    - host
+  - toEndpoints:
+    - matchLabels:
+        k8s:io.kubernetes.pod.namespace: kube-system
+        k8s-app: kube-dns
+    toPorts:
+    - ports:
+      - port: "53"
+        protocol: UDP
+---
+# Default deny policy for the benchmark namespace
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: default-deny
+  namespace: benchmark
+  labels:
+    app.kubernetes.io/name: default-deny
+    app.kubernetes.io/component: security
+spec:
+  description: "Default deny all ingress and egress traffic"
+  endpointSelector: {}
+  ingress:
+  - fromEndpoints:
+    - matchLabels:
+        k8s:io.kubernetes.pod.namespace: benchmark
+  egress:
+  - toEndpoints:
+    - matchLabels:
+        k8s:io.kubernetes.pod.namespace: benchmark
+  - toEndpoints:
+    - matchLabels:
+        k8s:io.kubernetes.pod.namespace: kube-system

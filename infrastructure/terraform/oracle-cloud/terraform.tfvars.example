@@ -3,8 +3,8 @@
 # NEVER commit terraform.tfvars to version control
 
 # Authentication - Get these from OCI Console
-tenancy_ocid     = "ocid1.tenancy.oc1..aaaaaaaaxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-user_ocid        = "ocid1.user.oc1..aaaaaaaaxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+tenancy_ocid     = "ocid1.tenancy.oc1..aaaaaaaaoko66pnttpc7eu3akptegfkh7zqr3g64wtxwuwprqnxesod4bdca"
+user_ocid        = "ocid1.user.oc1..aaaaaaaaiw3mfoblpcymk47nuaxp4zvzqmp4yqnqksedyef6b5s2mnbjvtja"
 fingerprint      = "xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx"
 private_key_path = "~/.oci/oci_api_key.pem"
 compartment_ocid = "ocid1.compartment.oc1..aaaaaaaaxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
@@ -37,7 +37,7 @@ worker_memory_gb  = 6
 # Test Type
 test_type = "benchmark"  # Options: istio, cilium, linkerd, baseline, benchmark
 
-# Network
+# Network~
 vcn_cidr    = "10.0.0.0/16"
 subnet_cidr = "10.0.1.0/24"
 

@@ -6,7 +6,7 @@ and cost comparisons across different service mesh implementations.
 
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 from pydantic import BaseModel, Field, computed_field
 
@@ -297,7 +297,7 @@ class TCOAnalysis(BaseModel):
         """Calculate 3-year total cost."""
         return self.monthly_total_cost * 36 + self.operational_costs.setup_cost
 
-    def get_cost_breakdown(self) -> Dict[str, float]:
+    def get_cost_breakdown(self) -> dict[str, float]:
         """Get detailed cost breakdown."""
         return {
             "monthly_compute": self.infrastructure_costs.monthly_compute_cost,
@@ -415,7 +415,7 @@ class CostComparison(BaseModel):
     """Cost comparison across multiple service meshes."""
 
     baseline_tco: TCOAnalysis
-    mesh_tcos: List[TCOAnalysis]
+    mesh_tcos: list[TCOAnalysis]
 
     analysis_date: datetime = Field(default_factory=datetime.utcnow)
     currency: str = Field(default="USD", description="Currency code")
@@ -471,7 +471,7 @@ class CostComparison(BaseModel):
             key=lambda x: x.performance_improvement_percent
         ).mesh_name
 
-    def generate_comparison_table(self) -> List[Dict[str, Any]]:
+    def generate_comparison_table(self) -> list[dict[str, Any]]:
         """Generate comparison table data."""
         table = []
 
@@ -541,7 +541,7 @@ def calculate_tco(
 
 def compare_mesh_costs(
     baseline_tco: TCOAnalysis,
-    mesh_tcos: List[TCOAnalysis],
+    mesh_tcos: list[TCOAnalysis],
 ) -> CostComparison:
     """Create cost comparison across multiple meshes.
 

@@ -23,7 +23,7 @@ pip install checkov
 ### 2. Configure Terraform Securely
 
 ```bash
-cd terraform/oracle-cloud
+cd infrastructure/terraform/oracle-cloud
 
 # Copy and edit the example file
 cp terraform.tfvars.example terraform.tfvars
@@ -91,7 +91,7 @@ bandit -r tests/ -ll
 find benchmarks/scripts -name "*.sh" -exec shellcheck {} \;
 
 # Terraform security
-cd terraform/oracle-cloud
+cd infrastructure/terraform/oracle-cloud
 tfsec .
 checkov -d .
 
@@ -191,7 +191,7 @@ Error: [ERROR] Tool not found
 ```bash
 # Security scan everything
 pre-commit run --all-files && \
-  tfsec terraform/oracle-cloud && \
+  tfsec infrastructure/terraform/oracle-cloud && \
   bandit -r tests/ && \
   shellcheck benchmarks/scripts/*.sh
 
