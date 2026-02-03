@@ -1,7 +1,7 @@
 """Metrics and results endpoints."""
 
 import json
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException, Query, status
 
@@ -16,7 +16,7 @@ async def list_results(
     mesh_type: Optional[MeshType] = Query(None, description="Filter by mesh type"),
     test_type: Optional[str] = Query(None, description="Filter by test type"),
     limit: int = Query(50, ge=1, le=500, description="Maximum results to return"),
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """List available benchmark results."""
     results = []
 
@@ -52,7 +52,7 @@ async def list_results(
 
 
 @router.get("/results/{filename}")
-async def get_result_file(filename: str) -> Dict[str, Any]:
+async def get_result_file(filename: str) -> dict[str, Any]:
     """Get a specific result file."""
     # Sanitize filename to prevent directory traversal
     if "/" in filename or ".." in filename:
@@ -73,7 +73,7 @@ async def get_result_file(filename: str) -> Dict[str, Any]:
 @router.get("/summary")
 async def metrics_summary(
     mesh_type: Optional[MeshType] = Query(None, description="Filter by mesh type"),
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Get summary statistics of all results."""
     results = []
 
@@ -92,8 +92,8 @@ async def metrics_summary(
 
     # Calculate aggregated metrics
     total_tests = len(results)
-    by_mesh: Dict[str, int] = {}
-    by_test_type: Dict[str, int] = {}
+    by_mesh: dict[str, int] = {}
+    by_test_type: dict[str, int] = {}
 
     for result in results:
         m_type = result.get("mesh_type", "unknown")

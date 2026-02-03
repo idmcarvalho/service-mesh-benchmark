@@ -2,7 +2,7 @@
 
 import subprocess
 from datetime import datetime
-from typing import Any, Dict, List
+from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, status
 from fastapi.responses import FileResponse
@@ -16,7 +16,7 @@ router = APIRouter(prefix="/reports", tags=["Reports"])
 @router.post("/generate")
 async def generate_report(
     request: ReportRequest, background_tasks: BackgroundTasks
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Generate a benchmark report."""
     # Build command
     timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
@@ -70,7 +70,7 @@ async def generate_report(
 
 
 @router.get("/list")
-async def list_reports() -> List[Dict[str, Any]]:
+async def list_reports() -> list[dict[str, Any]]:
     """List generated reports."""
     reports = []
 

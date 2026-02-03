@@ -1,12 +1,11 @@
 """API request and response models."""
 
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Optional
 
 from pydantic import BaseModel, Field
 
 from src.tests.models import MeshType
-
 
 # ============================================================================
 # Request Models

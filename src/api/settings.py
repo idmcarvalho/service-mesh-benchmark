@@ -1,8 +1,7 @@
 """API settings and configuration management."""
 
-import os
 from pathlib import Path
-from typing import List, Optional
+from typing import Optional
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings
@@ -64,7 +63,7 @@ class Settings(BaseSettings):
     )
 
     @property
-    def cors_origins(self) -> List[str]:
+    def cors_origins(self) -> list[str]:
         """Parse allowed origins into a list."""
         return [origin.strip() for origin in self.allowed_origins.split(",") if origin.strip()]
 
@@ -129,7 +128,7 @@ class Settings(BaseSettings):
         """Check if running in production mode."""
         return not self.debug
 
-    def validate_production_config(self) -> List[str]:
+    def validate_production_config(self) -> list[str]:
         """Validate production configuration and return warnings."""
         warnings = []
 
