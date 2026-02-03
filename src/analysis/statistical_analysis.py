@@ -4,10 +4,9 @@ This module provides statistical tests, confidence intervals, effect sizes,
 and other statistical measures for comparing service mesh performance.
 """
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import numpy as np
-import pandas as pd
 from pydantic import BaseModel, Field, computed_field
 from scipy import stats
 
@@ -36,7 +35,7 @@ class DescriptiveStatistics(BaseModel):
 
     @computed_field
     @property
-    def confidence_interval_95(self) -> Tuple[float, float]:
+    def confidence_interval_95(self) -> tuple[float, float]:
         """Calculate 95% confidence interval for the mean."""
         margin_of_error = 1.96 * self.standard_error
         return (self.mean - margin_of_error, self.mean + margin_of_error)
@@ -113,7 +112,7 @@ class ANOVAResult(BaseModel):
     degrees_of_freedom_between: int = Field(description="Between-groups df")
     degrees_of_freedom_within: int = Field(description="Within-groups df")
 
-    group_statistics: Dict[str, DescriptiveStatistics] = Field(
+    group_statistics: dict[str, DescriptiveStatistics] = Field(
         description="Statistics for each group (mesh)"
     )
 
@@ -139,15 +138,15 @@ class OutlierAnalysis(BaseModel):
 
     outliers_count: int = Field(description="Number of outliers detected", ge=0)
     outliers_percent: float = Field(description="Percentage of data that are outliers", ge=0)
-    outlier_indices: List[int] = Field(description="Indices of outlier values")
-    outlier_values: List[float] = Field(description="Outlier values")
+    outlier_indices: list[int] = Field(description="Indices of outlier values")
+    outlier_values: list[float] = Field(description="Outlier values")
 
     method: str = Field(description="Method used for outlier detection")
     lower_bound: float = Field(description="Lower bound for outlier detection")
     upper_bound: float = Field(description="Upper bound for outlier detection")
 
 
-def calculate_descriptive_statistics(data: List[float]) -> DescriptiveStatistics:
+def calculate_descriptive_statistics(data: list[float]) -> DescriptiveStatistics:
     """Calculate comprehensive descriptive statistics for a dataset.
 
     Args:
@@ -189,8 +188,8 @@ def calculate_descriptive_statistics(data: List[float]) -> DescriptiveStatistics
 
 
 def compare_two_samples(
-    baseline: List[float],
-    mesh: List[float],
+    baseline: list[float],
+    mesh: list[float],
     alpha: float = 0.05,
     equal_variance: bool = True,
 ) -> StatisticalComparison:
@@ -261,7 +260,7 @@ def compare_two_samples(
 
 
 def compare_multiple_meshes(
-    mesh_data: Dict[str, List[float]],
+    mesh_data: dict[str, list[float]],
     alpha: float = 0.05,
 ) -> ANOVAResult:
     """Perform one-way ANOVA to compare multiple service meshes.
@@ -308,7 +307,7 @@ def compare_multiple_meshes(
 
 
 def detect_outliers_iqr(
-    data: List[float],
+    data: list[float],
     multiplier: float = 1.5,
 ) -> OutlierAnalysis:
     """Detect outliers using the Interquartile Range (IQR) method.
@@ -347,7 +346,7 @@ def detect_outliers_iqr(
 
 
 def detect_outliers_zscore(
-    data: List[float],
+    data: list[float],
     threshold: float = 3.0,
 ) -> OutlierAnalysis:
     """Detect outliers using the Z-score method.
@@ -396,7 +395,7 @@ def detect_outliers_zscore(
     )
 
 
-def perform_normality_test(data: List[float]) -> Tuple[bool, float]:
+def perform_normality_test(data: list[float]) -> tuple[bool, float]:
     """Test if data follows a normal distribution using Shapiro-Wilk test.
 
     Args:
@@ -446,11 +445,11 @@ def calculate_statistical_power(
 
 
 def generate_statistical_report(
-    baseline: List[float],
-    mesh_results: Dict[str, List[float]],
+    baseline: list[float],
+    mesh_results: dict[str, list[float]],
     metric_name: str = "latency",
     alpha: float = 0.05,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Generate comprehensive statistical report comparing baseline vs meshes.
 
     Args:
