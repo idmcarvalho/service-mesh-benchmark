@@ -1,0 +1,199 @@
+# Baseline HTTP Service for Phase 3 Testing
+# This workload runs WITHOUT any service mesh to establish performance baselines
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: baseline-http
+  labels:
+    benchmark: baseline
+    workload-type: http
+    # Explicitly disable sidecar injection for all meshes
+    istio-injection: disabled
+    linkerd.io/inject: disabled
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-config
+  namespace: baseline-http
+data:
+  nginx.conf: |
+    worker_processes auto;
+    error_log /var/log/nginx/error.log warn;
+    pid /tmp/nginx.pid;
+
+    events {
+        worker_connections 4096;
+        use epoll;
+        multi_accept on;
+    }
+
+    http {
+        include /etc/nginx/mime.types;
+        default_type application/octet-stream;
+
+        log_format main '$remote_addr - $remote_user [$time_local] "$request" '
+                        '$status $body_bytes_sent "$http_referer" '
+                        '"$http_user_agent" "$http_x_forwarded_for" '
+                        'rt=$request_time uct="$upstream_connect_time" '
+                        'uht="$upstream_header_time" urt="$upstream_response_time"';
+
+        access_log /var/log/nginx/access.log main;
+
+        sendfile on;
+        tcp_nopush on;
+        tcp_nodelay on;
+        keepalive_timeout 65;
+        keepalive_requests 10000;
+
+        # Performance tuning
+        client_body_buffer_size 10K;
+        client_header_buffer_size 1k;
+        client_max_body_size 8m;
+        large_client_header_buffers 4 4k;
+
+        server {
+            listen 80;
+            server_name _;
+
+            location / {
+                default_type text/plain;
+                return 200 'HTTP Benchmark Response\nServer: $hostname\nTime: $time_local\n';
+            }
+
+            location /health {
+                default_type text/plain;
+                return 200 'OK';
+            }
+
+            location /ready {
+                default_type text/plain;
+                return 200 'READY';
+            }
+
+            location /metrics {
+                stub_status on;
+                allow all;
+            }
+
+            # Echo endpoint for testing payload handling
+            location /echo {
+                default_type application/json;
+                return 200 '{"status":"ok","message":"echo","hostname":"$hostname"}';
+            }
+
+            # Simulate variable response times
+            location /delay {
+                default_type text/plain;
+                # Small built-in delay via empty upstream
+                return 200 'Delayed response from $hostname';
+            }
+        }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: baseline-http-server
+  namespace: baseline-http
+  labels:
+    app: baseline-http-server
+    version: v1
+    benchmark: baseline
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: baseline-http-server
+  template:
+    metadata:
+      labels:
+        app: baseline-http-server
+        version: v1
+        benchmark: baseline
+      annotations:
+        # Disable sidecar injection explicitly
+        sidecar.istio.io/inject: "false"
+        linkerd.io/inject: disabled
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:1.25-alpine
+        ports:
+        - containerPort: 80
+          name: http
+          protocol: TCP
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        volumeMounts:
+        - name: nginx-config
+          mountPath: /etc/nginx/nginx.conf
+          subPath: nginx.conf
+        - name: tmp
+          mountPath: /tmp
+        - name: cache
+          mountPath: /var/cache/nginx
+        - name: logs
+          mountPath: /var/log/nginx
+      volumes:
+      - name: nginx-config
+        configMap:
+          name: nginx-config
+      - name: tmp
+        emptyDir: {}
+      - name: cache
+        emptyDir: {}
+      - name: logs
+        emptyDir: {}
+      terminationGracePeriodSeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: baseline-http-server
+  namespace: baseline-http
+  labels:
+    app: baseline-http-server
+    benchmark: baseline
+spec:
+  type: ClusterIP
+  selector:
+    app: baseline-http-server
+  ports:
+  - name: http
+    port: 80
+    targetPort: 80
+    protocol: TCP
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: baseline-http-server-pdb
+  namespace: baseline-http
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: baseline-http-server

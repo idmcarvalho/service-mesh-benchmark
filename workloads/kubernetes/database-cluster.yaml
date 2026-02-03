@@ -1,0 +1,206 @@
+# Database Cluster (Redis) for Stateful Workload Testing
+# Tests service mesh handling of stateful applications
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: database-benchmark
+  labels:
+    benchmark: mesh
+    workload-type: database
+    istio-injection: enabled
+    linkerd.io/inject: enabled
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: redis-config
+  namespace: database-benchmark
+data:
+  redis.conf: |
+    # Redis configuration for benchmarking
+    bind 0.0.0.0
+    port 6379
+
+    # Performance settings
+    tcp-backlog 511
+    timeout 0
+    tcp-keepalive 300
+
+    # Memory settings
+    maxmemory 200mb
+    maxmemory-policy allkeys-lru
+
+    # Persistence (disabled for benchmarking)
+    save ""
+    appendonly no
+
+    # Performance optimizations
+    activerehashing yes
+    client-output-buffer-limit normal 0 0 0
+    client-output-buffer-limit replica 256mb 64mb 60
+    client-output-buffer-limit pubsub 32mb 8mb 60
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis
+  namespace: database-benchmark
+  labels:
+    app: redis
+    version: v1
+    benchmark: mesh
+spec:
+  serviceName: redis
+  replicas: 3
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+        version: v1
+        benchmark: mesh
+      annotations:
+        sidecar.istio.io/inject: "true"
+        linkerd.io/inject: enabled
+    spec:
+      containers:
+      - name: redis
+        image: redis:7-alpine
+        command:
+        - redis-server
+        - /etc/redis/redis.conf
+        ports:
+        - containerPort: 6379
+          name: redis
+          protocol: TCP
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi
+        livenessProbe:
+          exec:
+            command:
+            - redis-cli
+            - ping
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+        readinessProbe:
+          exec:
+            command:
+            - redis-cli
+            - ping
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+        volumeMounts:
+        - name: redis-config
+          mountPath: /etc/redis
+        - name: data
+          mountPath: /data
+      volumes:
+      - name: redis-config
+        configMap:
+          name: redis-config
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 1Gi
+---
+# Headless service for StatefulSet
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: database-benchmark
+  labels:
+    app: redis
+    benchmark: mesh
+spec:
+  type: ClusterIP
+  clusterIP: None  # Headless
+  selector:
+    app: redis
+  ports:
+  - name: redis
+    port: 6379
+    targetPort: 6379
+    protocol: TCP
+---
+# Regular service for client access
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-master
+  namespace: database-benchmark
+  labels:
+    app: redis
+    benchmark: mesh
+spec:
+  type: ClusterIP
+  selector:
+    app: redis
+  ports:
+  - name: redis
+    port: 6379
+    targetPort: 6379
+    protocol: TCP
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: redis-pdb
+  namespace: database-benchmark
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: redis
+---
+# Redis benchmark client deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis-benchmark-client
+  namespace: database-benchmark
+  labels:
+    app: redis-benchmark-client
+    benchmark: mesh
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis-benchmark-client
+  template:
+    metadata:
+      labels:
+        app: redis-benchmark-client
+        benchmark: mesh
+      annotations:
+        sidecar.istio.io/inject: "true"
+        linkerd.io/inject: enabled
+    spec:
+      containers:
+      - name: redis-client
+        image: redis:7-alpine
+        command:
+        - sleep
+        - infinity
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 128Mi

@@ -1,0 +1,344 @@
+# ML Batch Job for Compute-Intensive Workload Testing
+# Tests service mesh handling of batch processing and high CPU workloads
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ml-benchmark
+  labels:
+    benchmark: mesh
+    workload-type: ml-batch
+    istio-injection: enabled
+    linkerd.io/inject: enabled
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ml-training-script
+  namespace: ml-benchmark
+data:
+  train.py: |
+    #!/usr/bin/env python3
+    """
+    Simple ML training script for benchmarking service mesh overhead
+    during compute-intensive workloads.
+    """
+    import json
+    import os
+    import sys
+    import time
+    from datetime import datetime
+
+    # Try to import sklearn, fall back to basic computation if not available
+    try:
+        import numpy as np
+        from sklearn.datasets import make_classification
+        from sklearn.ensemble import RandomForestClassifier
+        from sklearn.model_selection import cross_val_score
+        HAS_SKLEARN = True
+    except ImportError:
+        HAS_SKLEARN = False
+        print("sklearn not available, using basic computation")
+
+    def run_ml_training():
+        """Run ML training workload."""
+        start_time = time.time()
+
+        if HAS_SKLEARN:
+            # Generate synthetic dataset
+            n_samples = int(os.environ.get('N_SAMPLES', 10000))
+            n_features = int(os.environ.get('N_FEATURES', 20))
+            n_estimators = int(os.environ.get('N_ESTIMATORS', 100))
+
+            print(f"Generating dataset: {n_samples} samples, {n_features} features")
+            X, y = make_classification(
+                n_samples=n_samples,
+                n_features=n_features,
+                n_informative=15,
+                n_redundant=5,
+                random_state=42
+            )
+
+            # Train RandomForest
+            print(f"Training RandomForest with {n_estimators} estimators...")
+            clf = RandomForestClassifier(
+                n_estimators=n_estimators,
+                n_jobs=-1,
+                random_state=42
+            )
+
+            # Cross-validation
+            scores = cross_val_score(clf, X, y, cv=5, scoring='accuracy')
+
+            # Final fit
+            clf.fit(X, y)
+
+            end_time = time.time()
+            duration = end_time - start_time
+
+            result = {
+                'status': 'success',
+                'timestamp': datetime.utcnow().isoformat(),
+                'hostname': os.environ.get('HOSTNAME', 'unknown'),
+                'duration_seconds': duration,
+                'metrics': {
+                    'n_samples': n_samples,
+                    'n_features': n_features,
+                    'n_estimators': n_estimators,
+                    'cv_mean_accuracy': float(np.mean(scores)),
+                    'cv_std_accuracy': float(np.std(scores)),
+                    'feature_importances_sum': float(np.sum(clf.feature_importances_))
+                }
+            }
+        else:
+            # Basic CPU-intensive computation as fallback
+            iterations = int(os.environ.get('ITERATIONS', 1000000))
+            print(f"Running basic computation: {iterations} iterations")
+
+            total = 0
+            for i in range(iterations):
+                total += i * i
+                if i % 100000 == 0:
+                    print(f"Progress: {i}/{iterations}")
+
+            end_time = time.time()
+            duration = end_time - start_time
+
+            result = {
+                'status': 'success',
+                'timestamp': datetime.utcnow().isoformat(),
+                'hostname': os.environ.get('HOSTNAME', 'unknown'),
+                'duration_seconds': duration,
+                'metrics': {
+                    'iterations': iterations,
+                    'computation_result': total % 1000000
+                }
+            }
+
+        print(json.dumps(result, indent=2))
+        return result
+
+    if __name__ == '__main__':
+        try:
+            result = run_ml_training()
+            sys.exit(0 if result['status'] == 'success' else 1)
+        except Exception as e:
+            print(json.dumps({
+                'status': 'error',
+                'error': str(e),
+                'timestamp': datetime.utcnow().isoformat()
+            }))
+            sys.exit(1)
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ml-training-job
+  namespace: ml-benchmark
+  labels:
+    app: ml-training
+    benchmark: mesh
+spec:
+  parallelism: 3
+  completions: 3
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app: ml-training
+        benchmark: mesh
+      annotations:
+        sidecar.istio.io/inject: "true"
+        linkerd.io/inject: enabled
+    spec:
+      restartPolicy: OnFailure
+      containers:
+      - name: ml-trainer
+        image: python:3.11-slim
+        command:
+        - /bin/bash
+        - -c
+        - |
+          pip install numpy scikit-learn --quiet
+          python /scripts/train.py
+        env:
+        - name: N_SAMPLES
+          value: "10000"
+        - name: N_FEATURES
+          value: "20"
+        - name: N_ESTIMATORS
+          value: "100"
+        resources:
+          requests:
+            cpu: 500m
+            memory: 512Mi
+          limits:
+            cpu: 1000m
+            memory: 1Gi
+        volumeMounts:
+        - name: scripts
+          mountPath: /scripts
+      volumes:
+      - name: scripts
+        configMap:
+          name: ml-training-script
+          defaultMode: 0755
+---
+# CronJob for repeated ML training benchmarks
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ml-training-benchmark
+  namespace: ml-benchmark
+  labels:
+    app: ml-training-benchmark
+    benchmark: mesh
+spec:
+  schedule: "0 */6 * * *"  # Every 6 hours
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      parallelism: 2
+      completions: 2
+      backoffLimit: 2
+      template:
+        metadata:
+          labels:
+            app: ml-training-benchmark
+            benchmark: mesh
+          annotations:
+            sidecar.istio.io/inject: "true"
+            linkerd.io/inject: enabled
+        spec:
+          restartPolicy: OnFailure
+          containers:
+          - name: ml-trainer
+            image: python:3.11-slim
+            command:
+            - /bin/bash
+            - -c
+            - |
+              pip install numpy scikit-learn --quiet
+              python /scripts/train.py
+            env:
+            - name: N_SAMPLES
+              value: "5000"
+            - name: N_FEATURES
+              value: "15"
+            - name: N_ESTIMATORS
+              value: "50"
+            resources:
+              requests:
+                cpu: 250m
+                memory: 256Mi
+              limits:
+                cpu: 500m
+                memory: 512Mi
+            volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+          volumes:
+          - name: scripts
+            configMap:
+              name: ml-training-script
+              defaultMode: 0755
+---
+# Long-running ML inference service for continuous workload
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ml-inference-server
+  namespace: ml-benchmark
+  labels:
+    app: ml-inference
+    benchmark: mesh
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: ml-inference
+  template:
+    metadata:
+      labels:
+        app: ml-inference
+        benchmark: mesh
+      annotations:
+        sidecar.istio.io/inject: "true"
+        linkerd.io/inject: enabled
+    spec:
+      containers:
+      - name: inference
+        image: python:3.11-slim
+        command:
+        - /bin/bash
+        - -c
+        - |
+          pip install flask numpy scikit-learn --quiet
+          python -c "
+          from flask import Flask, jsonify
+          import numpy as np
+          import os
+
+          app = Flask(__name__)
+
+          @app.route('/health')
+          def health():
+              return 'OK'
+
+          @app.route('/predict', methods=['POST'])
+          def predict():
+              # Simulate inference workload
+              data = np.random.randn(100, 20)
+              result = np.sum(data ** 2, axis=1)
+              return jsonify({'predictions': result.tolist()[:5], 'hostname': os.environ.get('HOSTNAME')})
+
+          @app.route('/ready')
+          def ready():
+              return 'READY'
+
+          if __name__ == '__main__':
+              app.run(host='0.0.0.0', port=8080)
+          "
+        ports:
+        - containerPort: 8080
+          name: http
+        resources:
+          requests:
+            cpu: 200m
+            memory: 256Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8080
+          initialDelaySeconds: 25
+          periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ml-inference
+  namespace: ml-benchmark
+  labels:
+    app: ml-inference
+    benchmark: mesh
+spec:
+  type: ClusterIP
+  selector:
+    app: ml-inference
+  ports:
+  - name: http
+    port: 80
+    targetPort: 8080
+    protocol: TCP

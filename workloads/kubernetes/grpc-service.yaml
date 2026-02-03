@@ -1,0 +1,175 @@
+# gRPC Service for Phase 4 Service Mesh Testing
+# This workload runs WITH service mesh sidecar injection enabled
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: grpc-benchmark
+  labels:
+    benchmark: mesh
+    workload-type: grpc
+    # Enable sidecar injection for Istio
+    istio-injection: enabled
+    # Enable sidecar injection for Linkerd
+    linkerd.io/inject: enabled
+  annotations:
+    # Consul Connect injection
+    consul.hashicorp.com/connect-inject: "true"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grpc-server
+  namespace: grpc-benchmark
+  labels:
+    app: grpc-server
+    version: v1
+    benchmark: mesh
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: grpc-server
+  template:
+    metadata:
+      labels:
+        app: grpc-server
+        version: v1
+        benchmark: mesh
+      annotations:
+        # Istio sidecar injection
+        sidecar.istio.io/inject: "true"
+        # Linkerd injection
+        linkerd.io/inject: enabled
+        # Consul Connect injection
+        consul.hashicorp.com/connect-inject: "true"
+        # Prometheus scraping
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9000"
+    spec:
+      containers:
+      - name: grpcbin
+        # grpcbin provides a fully-featured gRPC test server with reflection
+        image: moul/grpcbin:latest
+        ports:
+        - containerPort: 9000
+          name: grpc
+          protocol: TCP
+        - containerPort: 9001
+          name: grpc-tls
+          protocol: TCP
+        env:
+        - name: GRPC_VERBOSITY
+          value: "INFO"
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi
+        livenessProbe:
+          tcpSocket:
+            port: 9000
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          tcpSocket:
+            port: 9000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+      terminationGracePeriodSeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grpc-server
+  namespace: grpc-benchmark
+  labels:
+    app: grpc-server
+    benchmark: mesh
+  annotations:
+    # Consul Connect service registration
+    consul.hashicorp.com/service-name: "grpc-server"
+spec:
+  type: ClusterIP
+  selector:
+    app: grpc-server
+  ports:
+  - name: grpc
+    port: 9000
+    targetPort: 9000
+    protocol: TCP
+    # App protocol annotation for service mesh routing
+    appProtocol: grpc
+  - name: grpc-tls
+    port: 9001
+    targetPort: 9001
+    protocol: TCP
+    appProtocol: grpc
+---
+# Service Account for mesh identity
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: grpc-server
+  namespace: grpc-benchmark
+  labels:
+    app: grpc-server
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: grpc-server-pdb
+  namespace: grpc-benchmark
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: grpc-server
+---
+# Istio DestinationRule for gRPC traffic policy
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: grpc-server
+  namespace: grpc-benchmark
+spec:
+  host: grpc-server.grpc-benchmark.svc.cluster.local
+  trafficPolicy:
+    connectionPool:
+      tcp:
+        maxConnections: 1000
+      http:
+        h2UpgradePolicy: UPGRADE
+        http1MaxPendingRequests: 1000
+        http2MaxRequests: 1000
+    loadBalancer:
+      simple: LEAST_REQUEST
+---
+# Istio VirtualService for gRPC routing
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: grpc-server
+  namespace: grpc-benchmark
+spec:
+  hosts:
+  - grpc-server
+  http:
+  - match:
+    - port: 9000
+    route:
+    - destination:
+        host: grpc-server
+        port:
+          number: 9000
+    timeout: 30s
+    retries:
+      attempts: 3
+      perTryTimeout: 10s
+      retryOn: connect-failure,refused-stream,unavailable,cancelled,resource-exhausted

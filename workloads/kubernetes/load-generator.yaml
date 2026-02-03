@@ -1,0 +1,146 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: benchmark-scripts
+  namespace: benchmark
+data:
+  run-benchmark.sh: |
+    #!/bin/bash
+    set -e
+
+    TARGET_URL="${TARGET_URL:-http://echo-server}"
+    DURATION="${DURATION:-30}"
+    CONNECTIONS="${CONNECTIONS:-50}"
+    THREADS="${THREADS:-2}"
+    TEST_NAME="${TEST_NAME:-benchmark}"
+
+    echo "=============================================="
+    echo "Benchmark: $TEST_NAME"
+    echo "Target: $TARGET_URL"
+    echo "Duration: ${DURATION}s"
+    echo "Connections: $CONNECTIONS"
+    echo "Threads: $THREADS"
+    echo "=============================================="
+
+    # Warmup
+    echo "Warming up..."
+    wrk -t1 -c5 -d5s $TARGET_URL > /dev/null 2>&1
+
+    # Run benchmark
+    echo "Running benchmark..."
+    wrk -t$THREADS -c$CONNECTIONS -d${DURATION}s --latency $TARGET_URL
+
+    echo "=============================================="
+    echo "Benchmark completed!"
+    echo "=============================================="
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: benchmark-job
+  namespace: benchmark
+  labels:
+    app: load-generator
+    app.kubernetes.io/name: load-generator
+    app.kubernetes.io/component: benchmark
+spec:
+  ttlSecondsAfterFinished: 3600
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        app: load-generator
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: wrk
+        image: skandyla/wrk:latest
+        command: ["/bin/sh", "-c"]
+        args:
+        - |
+          apk add --no-cache bash curl
+          /scripts/run-benchmark.sh
+        env:
+        - name: TARGET_URL
+          value: "http://echo-server.benchmark.svc.cluster.local"
+        - name: DURATION
+          value: "60"
+        - name: CONNECTIONS
+          value: "100"
+        - name: THREADS
+          value: "4"
+        - name: TEST_NAME
+          value: "http-load-test"
+        volumeMounts:
+        - name: scripts
+          mountPath: /scripts
+        resources:
+          limits:
+            cpu: 500m
+            memory: 256Mi
+          requests:
+            cpu: 100m
+            memory: 64Mi
+      volumes:
+      - name: scripts
+        configMap:
+          name: benchmark-scripts
+          defaultMode: 0755
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: scheduled-benchmark
+  namespace: benchmark
+  labels:
+    app: load-generator
+    app.kubernetes.io/name: scheduled-benchmark
+spec:
+  schedule: "0 */6 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 5
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      ttlSecondsAfterFinished: 7200
+      template:
+        metadata:
+          labels:
+            app: load-generator
+            type: scheduled
+        spec:
+          restartPolicy: Never
+          containers:
+          - name: wrk
+            image: skandyla/wrk:latest
+            command: ["/bin/sh", "-c"]
+            args:
+            - |
+              apk add --no-cache bash curl
+              /scripts/run-benchmark.sh
+            env:
+            - name: TARGET_URL
+              value: "http://echo-server.benchmark.svc.cluster.local"
+            - name: DURATION
+              value: "120"
+            - name: CONNECTIONS
+              value: "100"
+            - name: THREADS
+              value: "4"
+            - name: TEST_NAME
+              value: "scheduled-benchmark"
+            volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+            resources:
+              limits:
+                cpu: 500m
+                memory: 256Mi
+              requests:
+                cpu: 100m
+                memory: 64Mi
+          volumes:
+          - name: scripts
+            configMap:
+              name: benchmark-scripts
+              defaultMode: 0755

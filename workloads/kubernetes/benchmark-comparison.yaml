@@ -1,0 +1,777 @@
+# Service Mesh Benchmark Comparison: Baseline vs Istio Sidecar vs Cilium eBPF
+# This manifest creates identical workloads across three configurations
+---
+# ============================================================================
+# NAMESPACE 1: BASELINE (No Service Mesh)
+# ============================================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: benchmark-baseline
+  labels:
+    benchmark: comparison
+    mesh-type: none
+    istio-injection: disabled
+    linkerd.io/inject: disabled
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: echo-server-config
+  namespace: benchmark-baseline
+data:
+  server.py: |
+    #!/usr/bin/env python3
+    """High-performance HTTP echo server for benchmarking."""
+    import json
+    import os
+    import time
+    import socket
+    from http.server import HTTPServer, BaseHTTPRequestHandler
+    from datetime import datetime
+
+    class BenchmarkHandler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            start = time.perf_counter_ns()
+            response = {
+                'path': self.path,
+                'hostname': os.environ.get('HOSTNAME', 'unknown'),
+                'timestamp': datetime.utcnow().isoformat(),
+                'mesh_type': os.environ.get('MESH_TYPE', 'unknown'),
+                'processing_start_ns': start
+            }
+            body = json.dumps(response).encode()
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Length', len(body))
+            self.send_header('X-Processing-Time-Ns', str(time.perf_counter_ns() - start))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_POST(self):
+            start = time.perf_counter_ns()
+            content_length = int(self.headers.get('Content-Length', 0))
+            body = self.rfile.read(content_length) if content_length else b''
+            response = {
+                'path': self.path,
+                'hostname': os.environ.get('HOSTNAME', 'unknown'),
+                'timestamp': datetime.utcnow().isoformat(),
+                'mesh_type': os.environ.get('MESH_TYPE', 'unknown'),
+                'body_size': len(body),
+                'processing_start_ns': start
+            }
+            resp_body = json.dumps(response).encode()
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Length', len(resp_body))
+            self.send_header('X-Processing-Time-Ns', str(time.perf_counter_ns() - start))
+            self.end_headers()
+            self.wfile.write(resp_body)
+
+        def log_message(self, format, *args):
+            pass  # Suppress logging for performance
+
+    def main():
+        port = int(os.environ.get('PORT', '8080'))
+        server = HTTPServer(('0.0.0.0', port), BenchmarkHandler)
+        server.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        print(f'Benchmark server starting on port {port}')
+        server.serve_forever()
+
+    if __name__ == '__main__':
+        main()
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: echo-server
+  namespace: benchmark-baseline
+  labels:
+    app: echo-server
+    benchmark: comparison
+    mesh-type: none
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: echo-server
+  template:
+    metadata:
+      labels:
+        app: echo-server
+        benchmark: comparison
+        mesh-type: none
+      annotations:
+        sidecar.istio.io/inject: "false"
+    spec:
+      containers:
+      - name: echo-server
+        image: python:3.11-slim
+        command: ["python3", "/app/server.py"]
+        ports:
+        - containerPort: 8080
+          name: http
+        env:
+        - name: PORT
+          value: "8080"
+        - name: MESH_TYPE
+          value: "baseline"
+        resources:
+          requests:
+            cpu: 100m
+            memory: 64Mi
+          limits:
+            cpu: 500m
+            memory: 128Mi
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 3
+          periodSeconds: 5
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        volumeMounts:
+        - name: server-code
+          mountPath: /app
+      volumes:
+      - name: server-code
+        configMap:
+          name: echo-server-config
+          defaultMode: 0755
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: echo-server
+  namespace: benchmark-baseline
+  labels:
+    app: echo-server
+    benchmark: comparison
+spec:
+  type: ClusterIP
+  selector:
+    app: echo-server
+  ports:
+  - name: http
+    port: 80
+    targetPort: 8080
+---
+# ============================================================================
+# NAMESPACE 2: ISTIO SIDECAR (Traditional Proxy)
+# ============================================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: benchmark-istio
+  labels:
+    benchmark: comparison
+    mesh-type: istio-sidecar
+    istio-injection: enabled
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: echo-server-config
+  namespace: benchmark-istio
+data:
+  server.py: |
+    #!/usr/bin/env python3
+    """High-performance HTTP echo server for benchmarking."""
+    import json
+    import os
+    import time
+    import socket
+    from http.server import HTTPServer, BaseHTTPRequestHandler
+    from datetime import datetime
+
+    class BenchmarkHandler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            start = time.perf_counter_ns()
+            response = {
+                'path': self.path,
+                'hostname': os.environ.get('HOSTNAME', 'unknown'),
+                'timestamp': datetime.utcnow().isoformat(),
+                'mesh_type': os.environ.get('MESH_TYPE', 'unknown'),
+                'processing_start_ns': start
+            }
+            body = json.dumps(response).encode()
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Length', len(body))
+            self.send_header('X-Processing-Time-Ns', str(time.perf_counter_ns() - start))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_POST(self):
+            start = time.perf_counter_ns()
+            content_length = int(self.headers.get('Content-Length', 0))
+            body = self.rfile.read(content_length) if content_length else b''
+            response = {
+                'path': self.path,
+                'hostname': os.environ.get('HOSTNAME', 'unknown'),
+                'timestamp': datetime.utcnow().isoformat(),
+                'mesh_type': os.environ.get('MESH_TYPE', 'unknown'),
+                'body_size': len(body),
+                'processing_start_ns': start
+            }
+            resp_body = json.dumps(response).encode()
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Length', len(resp_body))
+            self.send_header('X-Processing-Time-Ns', str(time.perf_counter_ns() - start))
+            self.end_headers()
+            self.wfile.write(resp_body)
+
+        def log_message(self, format, *args):
+            pass
+
+    def main():
+        port = int(os.environ.get('PORT', '8080'))
+        server = HTTPServer(('0.0.0.0', port), BenchmarkHandler)
+        server.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        print(f'Benchmark server starting on port {port}')
+        server.serve_forever()
+
+    if __name__ == '__main__':
+        main()
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: echo-server
+  namespace: benchmark-istio
+  labels:
+    app: echo-server
+    benchmark: comparison
+    mesh-type: istio-sidecar
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: echo-server
+  template:
+    metadata:
+      labels:
+        app: echo-server
+        benchmark: comparison
+        mesh-type: istio-sidecar
+      annotations:
+        sidecar.istio.io/inject: "true"
+        proxy.istio.io/config: |
+          holdApplicationUntilProxyStarts: true
+    spec:
+      containers:
+      - name: echo-server
+        image: python:3.11-slim
+        command: ["python3", "/app/server.py"]
+        ports:
+        - containerPort: 8080
+          name: http
+        env:
+        - name: PORT
+          value: "8080"
+        - name: MESH_TYPE
+          value: "istio-sidecar"
+        resources:
+          requests:
+            cpu: 100m
+            memory: 64Mi
+          limits:
+            cpu: 500m
+            memory: 128Mi
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 5
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 15
+          periodSeconds: 10
+        volumeMounts:
+        - name: server-code
+          mountPath: /app
+      volumes:
+      - name: server-code
+        configMap:
+          name: echo-server-config
+          defaultMode: 0755
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: echo-server
+  namespace: benchmark-istio
+  labels:
+    app: echo-server
+    benchmark: comparison
+spec:
+  type: ClusterIP
+  selector:
+    app: echo-server
+  ports:
+  - name: http
+    port: 80
+    targetPort: 8080
+---
+# Istio DestinationRule for connection pooling
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: echo-server
+  namespace: benchmark-istio
+spec:
+  host: echo-server.benchmark-istio.svc.cluster.local
+  trafficPolicy:
+    connectionPool:
+      tcp:
+        maxConnections: 100
+        connectTimeout: 10s
+      http:
+        h2UpgradePolicy: UPGRADE
+        http1MaxPendingRequests: 100
+        http2MaxRequests: 1000
+---
+# ============================================================================
+# NAMESPACE 3: CILIUM eBPF ONLY (Sidecarless)
+# ============================================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: benchmark-cilium
+  labels:
+    benchmark: comparison
+    mesh-type: cilium-ebpf
+    istio-injection: disabled
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: echo-server-config
+  namespace: benchmark-cilium
+data:
+  server.py: |
+    #!/usr/bin/env python3
+    """High-performance HTTP echo server for benchmarking."""
+    import json
+    import os
+    import time
+    import socket
+    from http.server import HTTPServer, BaseHTTPRequestHandler
+    from datetime import datetime
+
+    class BenchmarkHandler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            start = time.perf_counter_ns()
+            response = {
+                'path': self.path,
+                'hostname': os.environ.get('HOSTNAME', 'unknown'),
+                'timestamp': datetime.utcnow().isoformat(),
+                'mesh_type': os.environ.get('MESH_TYPE', 'unknown'),
+                'processing_start_ns': start
+            }
+            body = json.dumps(response).encode()
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Length', len(body))
+            self.send_header('X-Processing-Time-Ns', str(time.perf_counter_ns() - start))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_POST(self):
+            start = time.perf_counter_ns()
+            content_length = int(self.headers.get('Content-Length', 0))
+            body = self.rfile.read(content_length) if content_length else b''
+            response = {
+                'path': self.path,
+                'hostname': os.environ.get('HOSTNAME', 'unknown'),
+                'timestamp': datetime.utcnow().isoformat(),
+                'mesh_type': os.environ.get('MESH_TYPE', 'unknown'),
+                'body_size': len(body),
+                'processing_start_ns': start
+            }
+            resp_body = json.dumps(response).encode()
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Length', len(resp_body))
+            self.send_header('X-Processing-Time-Ns', str(time.perf_counter_ns() - start))
+            self.end_headers()
+            self.wfile.write(resp_body)
+
+        def log_message(self, format, *args):
+            pass
+
+    def main():
+        port = int(os.environ.get('PORT', '8080'))
+        server = HTTPServer(('0.0.0.0', port), BenchmarkHandler)
+        server.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        print(f'Benchmark server starting on port {port}')
+        server.serve_forever()
+
+    if __name__ == '__main__':
+        main()
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: echo-server
+  namespace: benchmark-cilium
+  labels:
+    app: echo-server
+    benchmark: comparison
+    mesh-type: cilium-ebpf
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: echo-server
+  template:
+    metadata:
+      labels:
+        app: echo-server
+        benchmark: comparison
+        mesh-type: cilium-ebpf
+      annotations:
+        sidecar.istio.io/inject: "false"
+    spec:
+      containers:
+      - name: echo-server
+        image: python:3.11-slim
+        command: ["python3", "/app/server.py"]
+        ports:
+        - containerPort: 8080
+          name: http
+        env:
+        - name: PORT
+          value: "8080"
+        - name: MESH_TYPE
+          value: "cilium-ebpf"
+        resources:
+          requests:
+            cpu: 100m
+            memory: 64Mi
+          limits:
+            cpu: 500m
+            memory: 128Mi
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 3
+          periodSeconds: 5
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        volumeMounts:
+        - name: server-code
+          mountPath: /app
+      volumes:
+      - name: server-code
+        configMap:
+          name: echo-server-config
+          defaultMode: 0755
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: echo-server
+  namespace: benchmark-cilium
+  labels:
+    app: echo-server
+    benchmark: comparison
+spec:
+  type: ClusterIP
+  selector:
+    app: echo-server
+  ports:
+  - name: http
+    port: 80
+    targetPort: 8080
+---
+# Cilium Network Policy for the eBPF namespace
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: echo-server-policy
+  namespace: benchmark-cilium
+spec:
+  endpointSelector:
+    matchLabels:
+      app: echo-server
+  ingress:
+  - fromEndpoints:
+    - {}
+    toPorts:
+    - ports:
+      - port: "8080"
+        protocol: TCP
+  egress:
+  - toEndpoints:
+    - {}
+---
+# ============================================================================
+# LOAD GENERATOR (Shared across namespaces)
+# ============================================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: benchmark-loadgen
+  labels:
+    benchmark: comparison
+    istio-injection: disabled
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: benchmark-scripts
+  namespace: benchmark-loadgen
+data:
+  run-benchmark.py: |
+    #!/usr/bin/env python3
+    """
+    Service Mesh Benchmark Runner
+    Compares: Baseline vs Istio Sidecar vs Cilium eBPF
+    """
+    import json
+    import time
+    import sys
+    import os
+    import statistics
+    import urllib.request
+    import urllib.error
+    from datetime import datetime
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    # Configuration
+    TARGETS = {
+        'baseline': 'http://echo-server.benchmark-baseline.svc.cluster.local',
+        'istio-sidecar': 'http://echo-server.benchmark-istio.svc.cluster.local',
+        'cilium-ebpf': 'http://echo-server.benchmark-cilium.svc.cluster.local'
+    }
+
+    def measure_latency(url, timeout=5):
+        """Measure single request latency in milliseconds."""
+        start = time.perf_counter()
+        try:
+            req = urllib.request.Request(url, headers={'Connection': 'close'})
+            with urllib.request.urlopen(req, timeout=timeout) as response:
+                _ = response.read()
+            return (time.perf_counter() - start) * 1000  # Convert to ms
+        except Exception as e:
+            return None
+
+    def run_benchmark(name, url, num_requests=500, concurrency=10):
+        """Run benchmark for a single target."""
+        print(f"\n{'='*60}")
+        print(f"Benchmarking: {name}")
+        print(f"URL: {url}")
+        print(f"Requests: {num_requests}, Concurrency: {concurrency}")
+        print('='*60)
+
+        latencies = []
+        errors = 0
+        start_time = time.time()
+
+        with ThreadPoolExecutor(max_workers=concurrency) as executor:
+            futures = [executor.submit(measure_latency, url) for _ in range(num_requests)]
+            for i, future in enumerate(as_completed(futures)):
+                result = future.result()
+                if result is not None:
+                    latencies.append(result)
+                else:
+                    errors += 1
+                if (i + 1) % 100 == 0:
+                    print(f"  Progress: {i+1}/{num_requests}")
+
+        duration = time.time() - start_time
+
+        if not latencies:
+            return {'error': 'All requests failed', 'errors': errors}
+
+        latencies.sort()
+        n = len(latencies)
+
+        results = {
+            'name': name,
+            'url': url,
+            'timestamp': datetime.utcnow().isoformat(),
+            'config': {
+                'num_requests': num_requests,
+                'concurrency': concurrency
+            },
+            'summary': {
+                'total_requests': num_requests,
+                'successful_requests': n,
+                'failed_requests': errors,
+                'duration_seconds': round(duration, 2),
+                'requests_per_second': round(n / duration, 2)
+            },
+            'latency_ms': {
+                'min': round(min(latencies), 3),
+                'max': round(max(latencies), 3),
+                'mean': round(statistics.mean(latencies), 3),
+                'median': round(statistics.median(latencies), 3),
+                'std_dev': round(statistics.stdev(latencies), 3) if n > 1 else 0,
+                'p50': round(latencies[int(n * 0.50)], 3),
+                'p75': round(latencies[int(n * 0.75)], 3),
+                'p90': round(latencies[int(n * 0.90)], 3),
+                'p95': round(latencies[int(n * 0.95)], 3),
+                'p99': round(latencies[int(n * 0.99)], 3)
+            },
+            'raw_latencies': latencies
+        }
+
+        print(f"\nResults for {name}:")
+        print(f"  Successful: {n}/{num_requests} ({100*n/num_requests:.1f}%)")
+        print(f"  RPS: {results['summary']['requests_per_second']}")
+        print(f"  Latency (ms): min={results['latency_ms']['min']:.2f}, "
+              f"mean={results['latency_ms']['mean']:.2f}, "
+              f"p99={results['latency_ms']['p99']:.2f}, "
+              f"max={results['latency_ms']['max']:.2f}")
+
+        return results
+
+    def compare_results(results):
+        """Compare results and calculate overhead."""
+        print("\n" + "="*60)
+        print("COMPARISON SUMMARY")
+        print("="*60)
+
+        baseline = results.get('baseline')
+        if not baseline or 'error' in baseline:
+            print("WARNING: Baseline benchmark failed")
+            return {}
+
+        comparison = {
+            'timestamp': datetime.utcnow().isoformat(),
+            'baseline_mean_ms': baseline['latency_ms']['mean'],
+            'comparisons': {}
+        }
+
+        for name, result in results.items():
+            if name == 'baseline' or 'error' in result:
+                continue
+
+            overhead_ms = result['latency_ms']['mean'] - baseline['latency_ms']['mean']
+            overhead_pct = (overhead_ms / baseline['latency_ms']['mean']) * 100
+
+            comparison['comparisons'][name] = {
+                'mean_ms': result['latency_ms']['mean'],
+                'overhead_ms': round(overhead_ms, 3),
+                'overhead_percent': round(overhead_pct, 2),
+                'p99_ms': result['latency_ms']['p99'],
+                'p99_overhead_ms': round(result['latency_ms']['p99'] - baseline['latency_ms']['p99'], 3)
+            }
+
+            print(f"\n{name}:")
+            print(f"  Mean latency: {result['latency_ms']['mean']:.2f} ms")
+            print(f"  Overhead vs baseline: +{overhead_ms:.2f} ms ({overhead_pct:+.1f}%)")
+            print(f"  P99 latency: {result['latency_ms']['p99']:.2f} ms")
+
+        return comparison
+
+    def main():
+        num_requests = int(os.environ.get('NUM_REQUESTS', '500'))
+        concurrency = int(os.environ.get('CONCURRENCY', '10'))
+        output_file = os.environ.get('OUTPUT_FILE', '/results/benchmark_results.json')
+
+        print("Service Mesh Benchmark: Sidecar vs Sidecarless Analysis")
+        print(f"Requests per target: {num_requests}")
+        print(f"Concurrency: {concurrency}")
+
+        results = {}
+        for name, url in TARGETS.items():
+            try:
+                results[name] = run_benchmark(name, url, num_requests, concurrency)
+            except Exception as e:
+                print(f"ERROR benchmarking {name}: {e}")
+                results[name] = {'error': str(e)}
+
+        comparison = compare_results(results)
+
+        output = {
+            'benchmark_type': 'service-mesh-comparison',
+            'timestamp': datetime.utcnow().isoformat(),
+            'configuration': {
+                'num_requests': num_requests,
+                'concurrency': concurrency
+            },
+            'results': results,
+            'comparison': comparison
+        }
+
+        # Save results
+        os.makedirs(os.path.dirname(output_file), exist_ok=True)
+        with open(output_file, 'w') as f:
+            json.dump(output, f, indent=2)
+        print(f"\nResults saved to {output_file}")
+
+        # Also print to stdout
+        print("\n" + "="*60)
+        print("FINAL RESULTS (JSON)")
+        print("="*60)
+        print(json.dumps(output, indent=2, default=str))
+
+    if __name__ == '__main__':
+        main()
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: benchmark-runner
+  namespace: benchmark-loadgen
+  labels:
+    app: benchmark-runner
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: benchmark-runner
+  template:
+    metadata:
+      labels:
+        app: benchmark-runner
+      annotations:
+        sidecar.istio.io/inject: "false"
+    spec:
+      containers:
+      - name: runner
+        image: python:3.11-slim
+        command: ["sleep", "infinity"]
+        env:
+        - name: NUM_REQUESTS
+          value: "500"
+        - name: CONCURRENCY
+          value: "10"
+        - name: OUTPUT_FILE
+          value: "/results/benchmark_results.json"
+        resources:
+          requests:
+            cpu: 200m
+            memory: 256Mi
+          limits:
+            cpu: 1000m
+            memory: 512Mi
+        volumeMounts:
+        - name: scripts
+          mountPath: /scripts
+        - name: results
+          mountPath: /results
+      volumes:
+      - name: scripts
+        configMap:
+          name: benchmark-scripts
+          defaultMode: 0755
+      - name: results
+        emptyDir: {}
