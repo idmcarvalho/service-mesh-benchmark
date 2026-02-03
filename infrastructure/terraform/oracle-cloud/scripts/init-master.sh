@@ -85,38 +85,46 @@ sudo chmod +x /home/ubuntu/join-command.sh
 
 # Install Helm securely with direct binary download and checksum verification
 HELM_VERSION="v3.14.0"
-HELM_ARCH="linux-amd64"
-HELM_TARBALL="helm-${HELM_VERSION}-${HELM_ARCH}.tar.gz"
-HELM_URL="https://get.helm.sh/${HELM_TARBALL}"
-# Official SHA256 checksum from https://github.com/helm/helm/releases/tag/v3.14.0
-HELM_CHECKSUM="f43e1c3387de24547506ab05d24e5309c0ce0b228c23bd8aa64e9ec4b8206651"
+# Detect architecture (ARM64 for OCI A1.Flex instances)
+ARCH=$$(uname -m)
+if [ "$$ARCH" = "aarch64" ]; then
+    HELM_ARCH="linux-arm64"
+    # SHA256 checksum for ARM64 from https://github.com/helm/helm/releases/tag/v3.14.0
+    HELM_CHECKSUM="b29e61674731b15f6ad3d1a3118a99d3cc2ab25a911aad1b8ac8c72d5a9d2952"
+else
+    HELM_ARCH="linux-amd64"
+    # SHA256 checksum for AMD64 from https://github.com/helm/helm/releases/tag/v3.14.0
+    HELM_CHECKSUM="f43e1c3387de24547506ab05d24e5309c0ce0b228c23bd8aa64e9ec4b8206651"
+fi
+HELM_TARBALL="helm-$${HELM_VERSION}-$${HELM_ARCH}.tar.gz"
+HELM_URL="https://get.helm.sh/$${HELM_TARBALL}"
 
-echo "Installing Helm ${HELM_VERSION}..."
+echo "Installing Helm $${HELM_VERSION}..."
 
 # Download Helm binary tarball
-curl -fsSL "${HELM_URL}" -o "/tmp/${HELM_TARBALL}"
+curl -fsSL "$${HELM_URL}" -o "/tmp/$${HELM_TARBALL}"
 
 # Verify checksum of the actual Helm binary
-echo "${HELM_CHECKSUM}  /tmp/${HELM_TARBALL}" | sha256sum -c - || {
+echo "$${HELM_CHECKSUM}  /tmp/$${HELM_TARBALL}" | sha256sum -c - || {
     echo "ERROR: Helm binary checksum verification failed!" >&2
-    echo "Expected: ${HELM_CHECKSUM}" >&2
-    echo "Got: $(sha256sum /tmp/${HELM_TARBALL} | awk '{print $1}')" >&2
-    rm -f "/tmp/${HELM_TARBALL}"
+    echo "Expected: $${HELM_CHECKSUM}" >&2
+    echo "Got: $(sha256sum /tmp/$${HELM_TARBALL} | awk '{print $1}')" >&2
+    rm -f "/tmp/$${HELM_TARBALL}"
     exit 1
 }
 
 # Extract and install
-tar -xzf "/tmp/${HELM_TARBALL}" -C /tmp/
-sudo mv "/tmp/${HELM_ARCH}/helm" /usr/local/bin/helm
+tar -xzf "/tmp/$${HELM_TARBALL}" -C /tmp/
+sudo mv "/tmp/$${HELM_ARCH}/helm" /usr/local/bin/helm
 sudo chmod +x /usr/local/bin/helm
 
 # Verify installation
 helm version --short
 
 # Cleanup
-rm -rf "/tmp/${HELM_TARBALL}" "/tmp/${HELM_ARCH}"
+rm -rf "/tmp/$${HELM_TARBALL}" "/tmp/$${HELM_ARCH}"
 
-echo "Helm ${HELM_VERSION} installed successfully with verified checksum"
+echo "Helm $${HELM_VERSION} installed successfully with verified checksum"
 
 # Install metrics-server
 kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml

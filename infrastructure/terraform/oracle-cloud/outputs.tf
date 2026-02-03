@@ -43,16 +43,16 @@ output "subnet_id" {
   value       = oci_core_subnet.public_subnet.id
 }
 
-# Load Balancer
-output "load_balancer_ip" {
-  description = "IP address of the load balancer"
-  value       = oci_load_balancer_load_balancer.benchmark_lb.ip_address_details
-}
-
-output "load_balancer_id" {
-  description = "OCID of the load balancer"
-  value       = oci_load_balancer_load_balancer.benchmark_lb.id
-}
+# Load Balancer (temporarily disabled)
+# output "load_balancer_ip" {
+#   description = "IP address of the load balancer"
+#   value       = oci_load_balancer_load_balancer.benchmark_lb.ip_address_details
+# }
+#
+# output "load_balancer_id" {
+#   description = "OCID of the load balancer"
+#   value       = oci_load_balancer_load_balancer.benchmark_lb.id
+# }
 
 # SSH Connection String
 output "ssh_to_master" {
