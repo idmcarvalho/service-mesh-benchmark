@@ -15,9 +15,9 @@ import argparse
 import json
 import subprocess
 import time
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Optional
 
 import psutil
 
@@ -86,7 +86,7 @@ def measure_context_switches(
             cmd,
             capture_output=True,
             text=True,
-            timeout=duration + 10,
+            timeout=duration + 10, check=False,
         )
 
         # Parse perf output
@@ -157,7 +157,7 @@ def measure_ebpf_map_memory() -> int:
             ["sudo", "bpftool", "map", "show"],
             capture_output=True,
             text=True,
-            timeout=5,
+            timeout=5, check=False,
         )
 
         # Parse output to estimate memory
@@ -172,7 +172,7 @@ def measure_ebpf_map_memory() -> int:
 
 
 def measure_cpu_overhead_with_ebpf(
-    workload_cmd: List[str],
+    workload_cmd: list[str],
     duration: int,
     with_ebpf: bool = False,
 ) -> float:
@@ -339,7 +339,7 @@ def validate_overhead(
 
     print(f"Difference: {diff:+,} context switches ({percent_change:+.2f}%)")
     print()
-    print(f"eBPF Overhead:")
+    print("eBPF Overhead:")
     print(f"  Verification time: {ebpf_overhead.verification_time_ms:.2f}ms")
     print(f"  Map memory: {ebpf_overhead.map_memory_kb}KB")
     print()
