@@ -12,22 +12,20 @@ import re
 import statistics
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 from pydantic import BaseModel, Field, ValidationError
 
 from src.analysis import (
-    compare_two_samples,
-    calculate_descriptive_statistics,
-    StatisticalComparison,
-    DescriptiveStatistics,
-    CloudProvider,
     DEFAULT_PRICING,
+    CloudProvider,
+    DescriptiveStatistics,
     ResourceUsage,
+    StatisticalComparison,
+    calculate_descriptive_statistics,
     calculate_tco,
-    calculate_roi,
+    compare_two_samples,
 )
-from src.tests.models import BenchmarkResult, MeshType
 
 
 class WrkMetrics(BaseModel):
@@ -56,7 +54,7 @@ class AggregatedMetrics(BaseModel):
 
     test_type: str
     mesh_type: str
-    runs: List[Dict[str, Any]] = Field(default_factory=list)
+    runs: list[dict[str, Any]] = Field(default_factory=list)
     avg_throughput: Optional[float] = None
     avg_latency: Optional[float] = None
     p95_latency: Optional[float] = None
@@ -75,12 +73,12 @@ class AggregatedMetrics(BaseModel):
 class ChartData(BaseModel):
     """Data for chart generation."""
 
-    labels: List[str] = Field(default_factory=list)
-    throughput: List[float] = Field(default_factory=list)
-    latency: List[float] = Field(default_factory=list)
+    labels: list[str] = Field(default_factory=list)
+    throughput: list[float] = Field(default_factory=list)
+    latency: list[float] = Field(default_factory=list)
 
 
-def load_json_file(filepath: Path) -> Optional[Dict[str, Any]]:
+def load_json_file(filepath: Path) -> Optional[dict[str, Any]]:
     """Load JSON file safely.
 
     Args:
@@ -109,7 +107,7 @@ def parse_wrk_output(filepath: Path) -> Optional[WrkMetrics]:
         with open(filepath, encoding="utf-8") as f:
             content = f.read()
 
-        metrics_data: Dict[str, Any] = {
+        metrics_data: dict[str, Any] = {
             "raw_output": content,
         }
 
@@ -152,7 +150,7 @@ def parse_wrk_output(filepath: Path) -> Optional[WrkMetrics]:
         print(f"Error parsing {filepath}: {e}")
         return None
 
-def calculate_percentile(data: List[float], percentile: float) -> Optional[float]:
+def calculate_percentile(data: list[float], percentile: float) -> Optional[float]:
     """Calculate percentile from data.
 
     Args:
@@ -168,7 +166,7 @@ def calculate_percentile(data: List[float], percentile: float) -> Optional[float
     index = int(len(sorted_data) * percentile / 100)
     return sorted_data[min(index, len(sorted_data) - 1)]
 
-def aggregate_metrics(results: List[Dict[str, Any]]) -> Dict[str, AggregatedMetrics]:
+def aggregate_metrics(results: list[dict[str, Any]]) -> dict[str, AggregatedMetrics]:
     """Aggregate metrics by test type and service mesh.
 
     Calculates statistical significance compared to baseline.
@@ -179,7 +177,7 @@ def aggregate_metrics(results: List[Dict[str, Any]]) -> Dict[str, AggregatedMetr
     Returns:
         Dictionary mapping "{test_type}_{mesh_type}" keys to AggregatedMetrics objects.
     """
-    aggregated: Dict[str, AggregatedMetrics] = {}
+    aggregated: dict[str, AggregatedMetrics] = {}
 
     for result in results:
         test_type = result.get("test_type", "unknown")
@@ -200,8 +198,8 @@ def aggregate_metrics(results: List[Dict[str, Any]]) -> Dict[str, AggregatedMetr
         runs = data.runs
 
         # Extract throughput and latency values
-        throughputs: List[float] = []
-        latencies: List[float] = []
+        throughputs: list[float] = []
+        latencies: list[float] = []
 
         for run in runs:
             if "metrics" in run:
@@ -236,10 +234,10 @@ def aggregate_metrics(results: List[Dict[str, Any]]) -> Dict[str, AggregatedMetr
         baseline = aggregated[baseline_key]
 
         # Extract data for comparison
-        mesh_throughputs: List[float] = []
-        mesh_latencies: List[float] = []
-        baseline_throughputs: List[float] = []
-        baseline_latencies: List[float] = []
+        mesh_throughputs: list[float] = []
+        mesh_latencies: list[float] = []
+        baseline_throughputs: list[float] = []
+        baseline_latencies: list[float] = []
 
         for run in data.runs:
             if "metrics" in run:
@@ -276,7 +274,7 @@ def aggregate_metrics(results: List[Dict[str, Any]]) -> Dict[str, AggregatedMetr
 
     return aggregated
 
-def generate_comparison_table(aggregated_data: Dict[str, AggregatedMetrics]) -> str:
+def generate_comparison_table(aggregated_data: dict[str, AggregatedMetrics]) -> str:
     """Generate HTML comparison table with statistical significance.
 
     Args:
@@ -287,7 +285,7 @@ def generate_comparison_table(aggregated_data: Dict[str, AggregatedMetrics]) -> 
         and statistical significance indicators.
     """
     # Group by test type
-    by_test_type: Dict[str, List[AggregatedMetrics]] = {}
+    by_test_type: dict[str, list[AggregatedMetrics]] = {}
     for key, data in aggregated_data.items():
         test_type = data.test_type
         if test_type not in by_test_type:
@@ -379,7 +377,7 @@ def generate_comparison_table(aggregated_data: Dict[str, AggregatedMetrics]) -> 
 
     return html
 
-def generate_chart_data(aggregated_data: Dict[str, AggregatedMetrics]) -> str:
+def generate_chart_data(aggregated_data: dict[str, AggregatedMetrics]) -> str:
     """Generate JavaScript data for charts.
 
     Args:
@@ -389,7 +387,7 @@ def generate_chart_data(aggregated_data: Dict[str, AggregatedMetrics]) -> str:
         JSON string containing chart data.
     """
     # Group by test type
-    by_test_type: Dict[str, ChartData] = {}
+    by_test_type: dict[str, ChartData] = {}
     for key, data in aggregated_data.items():
         test_type = data.test_type
         if test_type not in by_test_type:
@@ -405,7 +403,7 @@ def generate_chart_data(aggregated_data: Dict[str, AggregatedMetrics]) -> str:
 
 
 def generate_cost_analysis_section(
-    results: List[Dict[str, Any]],
+    results: list[dict[str, Any]],
     cloud_provider: CloudProvider = CloudProvider.OCI
 ) -> str:
     """Generate cost analysis section using empirical resource usage data.
@@ -534,7 +532,7 @@ def generate_cost_analysis_section(
     return html
 
 
-def generate_html_report(results: List[Dict[str, Any]], output_file: Path) -> None:
+def generate_html_report(results: list[dict[str, Any]], output_file: Path) -> None:
     """Generate enhanced HTML report with charts and metrics.
 
     Args:
@@ -710,21 +708,21 @@ def generate_html_report(results: List[Dict[str, Any]], output_file: Path) -> No
             </tr>
 """
 
-    for result in sorted(results, key=lambda x: (x.get('test_type', ''), x.get('timestamp', ''))):
-        test_type = result.get('test_type', 'Unknown')
-        mesh_type = result.get('mesh_type', 'baseline')
-        timestamp = result.get('timestamp', 'N/A')
+    for result in sorted(results, key=lambda x: (x.get("test_type", ""), x.get("timestamp", ""))):
+        test_type = result.get("test_type", "Unknown")
+        mesh_type = result.get("mesh_type", "baseline")
+        timestamp = result.get("timestamp", "N/A")
         status = "✅ Completed" if result else "❌ Failed"
 
         # Extract key metrics
         metrics_summary = ""
-        if 'metrics' in result:
-            metrics = result['metrics']
-            if 'requests_per_sec' in metrics:
+        if "metrics" in result:
+            metrics = result["metrics"]
+            if "requests_per_sec" in metrics:
                 metrics_summary += f"RPS: {metrics['requests_per_sec']:.2f}<br>"
-            if 'avg_latency_ms' in metrics:
+            if "avg_latency_ms" in metrics:
                 metrics_summary += f"Latency: {metrics['avg_latency_ms']:.2f}ms<br>"
-            if 'throughput_msg_per_sec' in metrics:
+            if "throughput_msg_per_sec" in metrics:
                 metrics_summary += f"Throughput: {metrics['throughput_msg_per_sec']:.2f} msg/s<br>"
 
         html += f"""
@@ -882,7 +880,7 @@ def main() -> None:
     print(f"Scanning for results in: {results_dir}")
 
     # Collect all JSON result files
-    results: List[Dict[str, Any]] = []
+    results: list[dict[str, Any]] = []
     for json_file in results_dir.glob("*.json"):
         data = load_json_file(json_file)
         if data:
