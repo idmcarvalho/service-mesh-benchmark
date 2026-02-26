@@ -3,15 +3,14 @@
   hosts: master
   become: yes
   vars:
-    cilium_version: "1.14.4"
-    cilium_cli_version: "v0.15.17"
+    cilium_version: "1.19.0"
+    cilium_cli_arch: "arm64"
 
   tasks:
-    - name: Download Cilium CLI
-      get_url:
-        url: "https://github.com/cilium/cilium-cli/releases/download/{{ cilium_cli_version }}/cilium-linux-amd64.tar.gz"
-        dest: "/tmp/cilium-cli.tar.gz"
-        mode: '0644'
+    - name: Download latest Cilium CLI
+      shell: |
+        CILIUM_CLI_VERSION=$(curl -s https://raw.githubusercontent.com/cilium/cilium-cli/main/stable.txt)
+        curl -L "https://github.com/cilium/cilium-cli/releases/download/${CILIUM_CLI_VERSION}/cilium-linux-{{ cilium_cli_arch }}.tar.gz" -o /tmp/cilium-cli.tar.gz
 
     - name: Extract Cilium CLI
       unarchive:
@@ -39,23 +38,37 @@
         KUBECONFIG: "/home/ubuntu/.kube/config"
       ignore_errors: yes
 
-    - name: Install Cilium with advanced eBPF features
+    - name: Install Gateway API CRDs
+      shell: |
+        kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/gateway-api/v1.2.1/config/crd/standard/gateway.networking.k8s.io_gatewayclasses.yaml
+        kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/gateway-api/v1.2.1/config/crd/standard/gateway.networking.k8s.io_gateways.yaml
+        kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/gateway-api/v1.2.1/config/crd/standard/gateway.networking.k8s.io_httproutes.yaml
+        kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/gateway-api/v1.2.1/config/crd/standard/gateway.networking.k8s.io_referencegrants.yaml
+        kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/gateway-api/v1.2.1/config/crd/experimental/gateway.networking.k8s.io_grpcroutes.yaml
+        kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/gateway-api/v1.2.1/config/crd/experimental/gateway.networking.k8s.io_tlsroutes.yaml
+      become_user: ubuntu
+      environment:
+        KUBECONFIG: "/home/ubuntu/.kube/config"
+
+    - name: Install Cilium with advanced eBPF features and Gateway API
       shell: |
         cilium install --version {{ cilium_version }} \
-          --set ipam.mode=kubernetes \
-          --set kubeProxyReplacement=strict \
+          --set kubeProxyReplacement=true \
+          --set routingMode=tunnel \
+          --set tunnelProtocol=vxlan \
+          --set ipam.mode=cluster-pool \
+          --set gatewayAPI.enabled=true \
+          --set ingressController.enabled=true \
+          --set ingressController.loadbalancerMode=shared \
+          --set envoyConfig.enabled=true \
+          --set cni.exclusive=false \
           --set hubble.enabled=true \
           --set hubble.relay.enabled=true \
           --set hubble.ui.enabled=true \
           --set hubble.metrics.enabled="{dns,drop,tcp,flow,icmp,http}" \
           --set prometheus.enabled=true \
           --set operator.prometheus.enabled=true \
-          --set envoy.enabled=true \
-          --set envoy.prometheus.enabled=true \
-          --set loadBalancer.l7.backend=envoy \
-          --set bpf.monitorAggregation=maximum \
-          --set bpf.monitorInterval=5s \
-          --set bpf.monitorFlags=all
+          --set bpf.monitorAggregation=maximum
       when: cilium_status.rc != 0
       become_user: ubuntu
       environment:
@@ -64,11 +77,11 @@
     - name: Install Hubble CLI
       shell: |
         HUBBLE_VERSION=$(curl -s https://raw.githubusercontent.com/cilium/hubble/master/stable.txt)
-        curl -L --remote-name-all https://github.com/cilium/hubble/releases/download/$HUBBLE_VERSION/hubble-linux-amd64.tar.gz{,.sha256sum}
-        sha256sum --check hubble-linux-amd64.tar.gz.sha256sum
-        tar xzvf hubble-linux-amd64.tar.gz
+        curl -L --remote-name-all https://github.com/cilium/hubble/releases/download/$HUBBLE_VERSION/hubble-linux-{{ cilium_cli_arch }}.tar.gz{,.sha256sum}
+        sha256sum --check hubble-linux-{{ cilium_cli_arch }}.tar.gz.sha256sum
+        tar xzvf hubble-linux-{{ cilium_cli_arch }}.tar.gz
         mv hubble /usr/local/bin/
-        rm hubble-linux-amd64.tar.gz{,.sha256sum}
+        rm hubble-linux-{{ cilium_cli_arch }}.tar.gz{,.sha256sum}
       args:
         creates: /usr/local/bin/hubble
 

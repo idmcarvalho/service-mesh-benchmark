@@ -46,10 +46,11 @@ pub use handlers::{
     tcp_drop, kfree_skb_tracepoint,
     tcp_set_state, tcp_v4_connect, tcp_close,
     xdp_packet_monitor,
+    sched_switch,
 };
 
 // Re-export maps for verification
-pub use maps::{CONNECTION_START, EVENTS, STATS, PACKET_DROPS, CONNECTION_STATES, XDP_CONN_STATS};
+pub use maps::{CONNECTION_START, EVENTS, STATS, PACKET_DROPS, CONNECTION_STATES, XDP_CONN_STATS, CONTEXT_SWITCHES};
 
 #[cfg(not(test))]
 #[panic_handler]

@@ -3,21 +3,15 @@
   hosts: master
   become: yes
   vars:
-    istio_version: "1.20.0"
-    istio_download_url: "https://github.com/istio/istio/releases/download/{{ istio_version }}/istio-{{ istio_version }}-linux-amd64.tar.gz"
+    istio_version: "1.28.3"
+    istio_arch: "arm64"
 
   tasks:
     - name: Download Istio
-      get_url:
-        url: "{{ istio_download_url }}"
-        dest: "/tmp/istio-{{ istio_version }}.tar.gz"
-        mode: '0644'
-
-    - name: Extract Istio
-      unarchive:
-        src: "/tmp/istio-{{ istio_version }}.tar.gz"
-        dest: "/tmp/"
-        remote_src: yes
+      shell: |
+        curl -L https://istio.io/downloadIstio | ISTIO_VERSION={{ istio_version }} TARGET_ARCH={{ istio_arch }} sh -
+      args:
+        chdir: /tmp
 
     - name: Copy istioctl to /usr/local/bin
       copy:
@@ -32,16 +26,10 @@
       ignore_errors: yes
       become_user: ubuntu
 
-    - name: Install Istio with default profile
+    - name: Install Istio with ambient profile
       shell: |
-        /usr/local/bin/istioctl install --set profile=default -y
+        /usr/local/bin/istioctl install --set profile=ambient -y
       when: istio_namespace.rc != 0
-      become_user: ubuntu
-      environment:
-        KUBECONFIG: "/home/ubuntu/.kube/config"
-
-    - name: Enable automatic sidecar injection for default namespace
-      shell: kubectl label namespace default istio-injection=enabled --overwrite
       become_user: ubuntu
       environment:
         KUBECONFIG: "/home/ubuntu/.kube/config"
@@ -57,9 +45,10 @@
         KUBECONFIG: "/home/ubuntu/.kube/config"
       ignore_errors: yes
 
-    - name: Deploy Istio addons (Kiali, Prometheus, Grafana, Jaeger)
+    - name: Label ambient namespace
       shell: |
-        kubectl apply -f /tmp/istio-{{ istio_version}}/samples/addons/
+        kubectl label namespace istio-ambient istio.io/dataplane-mode=ambient --overwrite || true
+        kubectl label namespace istio-ambient istio-injection=disabled --overwrite || true
       become_user: ubuntu
       environment:
         KUBECONFIG: "/home/ubuntu/.kube/config"
@@ -67,6 +56,18 @@
 
     - name: Wait for Istio components to be ready
       shell: kubectl wait --for=condition=available --timeout=300s deployment --all -n istio-system
+      become_user: ubuntu
+      environment:
+        KUBECONFIG: "/home/ubuntu/.kube/config"
+
+    - name: Wait for ztunnel DaemonSet to be ready
+      shell: kubectl rollout status daemonset/ztunnel -n istio-system --timeout=300s
+      become_user: ubuntu
+      environment:
+        KUBECONFIG: "/home/ubuntu/.kube/config"
+
+    - name: Wait for istio-cni-node DaemonSet to be ready
+      shell: kubectl rollout status daemonset/istio-cni-node -n istio-system --timeout=300s
       become_user: ubuntu
       environment:
         KUBECONFIG: "/home/ubuntu/.kube/config"
@@ -82,13 +83,13 @@
       debug:
         msg: "{{ istio_version_output.stdout }}"
 
-    - name: Get Istio ingress gateway external IP
-      shell: kubectl get svc istio-ingressgateway -n istio-system
+    - name: Show Istio system pods
+      shell: kubectl get pods -n istio-system
       become_user: ubuntu
       environment:
         KUBECONFIG: "/home/ubuntu/.kube/config"
-      register: istio_ingress
+      register: istio_pods
 
-    - name: Show Istio ingress gateway
+    - name: Display Istio pods
       debug:
-        msg: "{{ istio_ingress.stdout }}"
+        msg: "{{ istio_pods.stdout }}"

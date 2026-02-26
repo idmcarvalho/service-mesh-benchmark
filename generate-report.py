@@ -94,6 +94,41 @@ def load_json_file(filepath: Path) -> Optional[dict[str, Any]]:
         print(f"Error loading {filepath}: {e}")
         return None
 
+
+# Required keys for a valid benchmark result that can be aggregated
+BENCHMARK_RESULT_REQUIRED_KEYS = {"test_type", "mesh_type", "metrics"}
+
+
+def is_valid_benchmark_result(data: Any, filepath: Path) -> bool:
+    """Check if JSON data matches the expected benchmark result schema.
+
+    Valid results must have test_type, mesh_type, and metrics keys.
+    Files like statistical_analysis_report.json, sidecar_vs_sidecarless_comparison.json,
+    and corrupted raw files are filtered out.
+
+    Args:
+        data: Parsed JSON data.
+        filepath: Path to the file (for logging).
+
+    Returns:
+        True if the data is a valid benchmark result.
+    """
+    if not isinstance(data, dict):
+        print(f"  Skipping {filepath.name}: not a JSON object")
+        return False
+
+    missing = BENCHMARK_RESULT_REQUIRED_KEYS - data.keys()
+    if missing:
+        print(f"  Skipping {filepath.name}: missing required keys {missing}")
+        return False
+
+    metrics = data.get("metrics")
+    if not isinstance(metrics, dict):
+        print(f"  Skipping {filepath.name}: 'metrics' is not a dictionary")
+        return False
+
+    return True
+
 def parse_wrk_output(filepath: Path) -> Optional[WrkMetrics]:
     """Parse wrk output file to extract metrics.
 
@@ -867,6 +902,11 @@ def main() -> None:
         default="html",
         help="Report format",
     )
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="Fail if any JSON files are invalid instead of skipping them",
+    )
 
     args = parser.parse_args()
 
@@ -879,14 +919,27 @@ def main() -> None:
 
     print(f"Scanning for results in: {results_dir}")
 
-    # Collect all JSON result files
+    # Collect JSON result files, validating each against the benchmark schema
     results: list[dict[str, Any]] = []
-    for json_file in results_dir.glob("*.json"):
+    skipped = 0
+    for json_file in sorted(results_dir.glob("*.json")):
         data = load_json_file(json_file)
-        if data:
-            results.append(data)
+        if data is None:
+            skipped += 1
+            if args.strict:
+                print(f"STRICT MODE: Aborting due to unreadable file: {json_file}")
+                return
+            continue
 
-    print(f"Found {len(results)} result files")
+        if is_valid_benchmark_result(data, json_file):
+            results.append(data)
+        else:
+            skipped += 1
+            if args.strict:
+                print(f"STRICT MODE: Aborting due to invalid result schema: {json_file}")
+                return
+
+    print(f"Found {len(results)} valid result files ({skipped} skipped)")
 
     if not results:
         print("No results found! Run some benchmarks first.")

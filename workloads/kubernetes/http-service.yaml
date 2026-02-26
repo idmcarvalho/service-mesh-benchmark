@@ -1,5 +1,6 @@
-# HTTP Service for Phase 4 Service Mesh Testing
-# This workload runs WITH service mesh sidecar injection enabled
+# HTTP Service for 4-Way Benchmark (Istio Sidecar Mode)
+# This workload runs WITH Istio sidecar injection enabled
+# Traffic path: client [sidecar] -> service -> [sidecar] backend fortio server
 ---
 apiVersion: v1
 kind: Namespace
@@ -8,97 +9,7 @@ metadata:
   labels:
     benchmark: mesh
     workload-type: http
-    # Enable sidecar injection for Istio
     istio-injection: enabled
-    # Enable sidecar injection for Linkerd
-    linkerd.io/inject: enabled
-  annotations:
-    # Consul Connect injection
-    consul.hashicorp.com/connect-inject: "true"
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: nginx-config
-  namespace: http-benchmark
-data:
-  nginx.conf: |
-    worker_processes auto;
-    error_log /var/log/nginx/error.log warn;
-    pid /tmp/nginx.pid;
-
-    events {
-        worker_connections 4096;
-        use epoll;
-        multi_accept on;
-    }
-
-    http {
-        include /etc/nginx/mime.types;
-        default_type application/octet-stream;
-
-        log_format main '$remote_addr - $remote_user [$time_local] "$request" '
-                        '$status $body_bytes_sent "$http_referer" '
-                        '"$http_user_agent" "$http_x_forwarded_for" '
-                        'rt=$request_time uct="$upstream_connect_time" '
-                        'uht="$upstream_header_time" urt="$upstream_response_time"';
-
-        access_log /var/log/nginx/access.log main;
-
-        sendfile on;
-        tcp_nopush on;
-        tcp_nodelay on;
-        keepalive_timeout 65;
-        keepalive_requests 10000;
-
-        # Performance tuning
-        client_body_buffer_size 10K;
-        client_header_buffer_size 1k;
-        client_max_body_size 8m;
-        large_client_header_buffers 4 4k;
-
-        server {
-            listen 80;
-            server_name _;
-
-            location / {
-                default_type text/plain;
-                return 200 'HTTP Benchmark Response (Mesh Enabled)\nServer: $hostname\nTime: $time_local\n';
-            }
-
-            location /health {
-                default_type text/plain;
-                return 200 'OK';
-            }
-
-            location /ready {
-                default_type text/plain;
-                return 200 'READY';
-            }
-
-            location /metrics {
-                stub_status on;
-                allow all;
-            }
-
-            # Echo endpoint for testing payload handling
-            location /echo {
-                default_type application/json;
-                return 200 '{"status":"ok","message":"echo","hostname":"$hostname","mesh":"enabled"}';
-            }
-
-            # API simulation endpoints
-            location /api/v1/users {
-                default_type application/json;
-                return 200 '{"users":[{"id":1,"name":"test"}],"total":1}';
-            }
-
-            location /api/v1/health {
-                default_type application/json;
-                return 200 '{"status":"healthy","checks":{"database":"ok","cache":"ok"}}';
-            }
-        }
-    }
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -110,7 +21,7 @@ metadata:
     version: v1
     benchmark: mesh
 spec:
-  replicas: 3
+  replicas: 1
   selector:
     matchLabels:
       app: http-server
@@ -121,68 +32,52 @@ spec:
         version: v1
         benchmark: mesh
       annotations:
-        # Istio sidecar injection (enabled via namespace, but can be explicit)
         sidecar.istio.io/inject: "true"
-        # Linkerd injection
-        linkerd.io/inject: enabled
-        # Consul Connect injection
-        consul.hashicorp.com/connect-inject: "true"
-        # Prometheus scraping
-        prometheus.io/scrape: "true"
-        prometheus.io/port: "80"
-        prometheus.io/path: "/metrics"
+        proxy.istio.io/config: |
+          holdApplicationUntilProxyStarts: true
     spec:
+      nodeSelector:
+        benchmark-role: server
       containers:
-      - name: nginx
-        image: nginx:1.25-alpine
+      - name: fortio
+        image: fortio/fortio:latest
+        args: ["server", "-http-port", "8080"]
         ports:
-        - containerPort: 80
+        - containerPort: 8080
           name: http
           protocol: TCP
         resources:
           requests:
-            cpu: 100m
-            memory: 128Mi
+            cpu: 50m
+            memory: 64Mi
           limits:
             cpu: 500m
             memory: 256Mi
         livenessProbe:
           httpGet:
-            path: /health
-            port: 80
-          initialDelaySeconds: 5
+            path: /fortio/
+            port: 8080
+          initialDelaySeconds: 10
           periodSeconds: 10
           timeoutSeconds: 5
           failureThreshold: 3
         readinessProbe:
           httpGet:
-            path: /ready
-            port: 80
-          initialDelaySeconds: 5
+            path: /fortio/
+            port: 8080
+          initialDelaySeconds: 10
           periodSeconds: 5
           timeoutSeconds: 3
           failureThreshold: 3
-        volumeMounts:
-        - name: nginx-config
-          mountPath: /etc/nginx/nginx.conf
-          subPath: nginx.conf
-        - name: tmp
-          mountPath: /tmp
-        - name: cache
-          mountPath: /var/cache/nginx
-        - name: logs
-          mountPath: /var/log/nginx
-      volumes:
-      - name: nginx-config
-        configMap:
-          name: nginx-config
-      - name: tmp
-        emptyDir: {}
-      - name: cache
-        emptyDir: {}
-      - name: logs
-        emptyDir: {}
       terminationGracePeriodSeconds: 30
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: http-server
+  namespace: http-benchmark
+  labels:
+    app: http-server
 ---
 apiVersion: v1
 kind: Service
@@ -192,40 +87,17 @@ metadata:
   labels:
     app: http-server
     benchmark: mesh
-  annotations:
-    # Consul Connect service registration
-    consul.hashicorp.com/service-name: "http-server"
 spec:
   type: ClusterIP
   selector:
     app: http-server
   ports:
   - name: http
-    port: 80
-    targetPort: 80
+    port: 8080
+    targetPort: 8080
     protocol: TCP
 ---
-# Service Account for mesh identity
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: http-server
-  namespace: http-benchmark
-  labels:
-    app: http-server
----
-apiVersion: policy/v1
-kind: PodDisruptionBudget
-metadata:
-  name: http-server-pdb
-  namespace: http-benchmark
-spec:
-  minAvailable: 1
-  selector:
-    matchLabels:
-      app: http-server
----
-# Istio DestinationRule for traffic policy (optional, applied when Istio is present)
+# Istio DestinationRule for traffic policy
 apiVersion: networking.istio.io/v1beta1
 kind: DestinationRule
 metadata:
@@ -244,7 +116,7 @@ spec:
     loadBalancer:
       simple: LEAST_REQUEST
 ---
-# Istio VirtualService for routing (optional)
+# Istio VirtualService for routing
 apiVersion: networking.istio.io/v1beta1
 kind: VirtualService
 metadata:
@@ -258,7 +130,7 @@ spec:
     - destination:
         host: http-server
         port:
-          number: 80
+          number: 8080
     timeout: 30s
     retries:
       attempts: 3

@@ -100,6 +100,20 @@ pub struct XdpConnStats {
     pub drop_count: u64,
 }
 
+/// Context switch event data
+///
+/// Captures scheduler context switch information for overhead analysis.
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct ContextSwitchEvent {
+    /// Timestamp when switch occurred (nanoseconds)
+    pub timestamp_ns: u64,
+    /// PID of the process being switched out
+    pub prev_pid: u32,
+    /// PID of the process being switched in
+    pub next_pid: u32,
+}
+
 // Compile-time alignment checks
 // These will fail to compile if alignment is wrong
 const _: () = {
@@ -113,6 +127,8 @@ const _: () = {
     assert!(core::mem::size_of::<ConnectionState>() % core::mem::align_of::<ConnectionState>() == 0);
     // XdpConnStats alignment check
     assert!(core::mem::size_of::<XdpConnStats>() % core::mem::align_of::<XdpConnStats>() == 0);
+    // ContextSwitchEvent alignment check
+    assert!(core::mem::size_of::<ContextSwitchEvent>() % core::mem::align_of::<ContextSwitchEvent>() == 0);
 };
 
 // Implement Aya's Pod trait for userspace usage
@@ -126,4 +142,5 @@ mod userspace_impls {
     unsafe impl aya::Pod for PacketDropEvent {}
     unsafe impl aya::Pod for ConnectionState {}
     unsafe impl aya::Pod for XdpConnStats {}
+    unsafe impl aya::Pod for ContextSwitchEvent {}
 }

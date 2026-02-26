@@ -188,6 +188,27 @@ impl PrometheusExporter {
         }
         output.push('\n');
 
+        // Context switches
+        output.push_str("# HELP latency_probe_context_switches_total Total context switches\n");
+        output.push_str("# TYPE latency_probe_context_switches_total counter\n");
+        output.push_str(&format!("latency_probe_context_switches_total {}\n", metrics.context_switches.total_switches));
+        output.push('\n');
+
+        output.push_str("# HELP latency_probe_context_switches_per_second Context switches per second\n");
+        output.push_str("# TYPE latency_probe_context_switches_per_second gauge\n");
+        output.push_str(&format!("latency_probe_context_switches_per_second {}\n", metrics.context_switches.switches_per_second));
+        output.push('\n');
+
+        // XDP stats
+        output.push_str("# HELP latency_probe_xdp_packets XDP packet statistics\n");
+        output.push_str("# TYPE latency_probe_xdp_packets counter\n");
+        output.push_str(&format!("latency_probe_xdp_packets{{protocol=\"total\"}} {}\n", metrics.xdp_stats.total_packets));
+        output.push_str(&format!("latency_probe_xdp_packets{{protocol=\"tcp\"}} {}\n", metrics.xdp_stats.tcp_packets));
+        output.push_str(&format!("latency_probe_xdp_packets{{protocol=\"udp\"}} {}\n", metrics.xdp_stats.udp_packets));
+        output.push_str(&format!("latency_probe_xdp_packets{{protocol=\"icmp\"}} {}\n", metrics.xdp_stats.icmp_packets));
+        output.push_str(&format!("latency_probe_xdp_packets{{protocol=\"ipv4\"}} {}\n", metrics.xdp_stats.ipv4_packets));
+        output.push('\n');
+
         output
     }
 }
@@ -320,6 +341,29 @@ impl InfluxExporter {
             ));
         }
 
+        // Context switches
+        output.push_str(&format!(
+            "{},type=context_switches total={}i,per_second={} {}\n",
+            measurement,
+            metrics.context_switches.total_switches,
+            metrics.context_switches.switches_per_second,
+            timestamp
+        ));
+
+        // XDP stats
+        output.push_str(&format!(
+            "{},type=xdp total={}i,ipv4={}i,tcp={}i,udp={}i,icmp={}i,other={}i,per_second={} {}\n",
+            measurement,
+            metrics.xdp_stats.total_packets,
+            metrics.xdp_stats.ipv4_packets,
+            metrics.xdp_stats.tcp_packets,
+            metrics.xdp_stats.udp_packets,
+            metrics.xdp_stats.icmp_packets,
+            metrics.xdp_stats.other_packets,
+            metrics.xdp_stats.packets_per_second,
+            timestamp
+        ));
+
         output
     }
 }
@@ -363,6 +407,8 @@ mod tests {
             event_type_breakdown: EventTypeBreakdown::default(),
             packet_drops: PacketDropStats::default(),
             connection_states: ConnectionStateStats::default(),
+            context_switches: ContextSwitchStats::default(),
+            xdp_stats: XdpPacketStats::default(),
         }
     }
 

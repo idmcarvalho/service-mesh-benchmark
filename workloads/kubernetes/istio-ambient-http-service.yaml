@@ -1,26 +1,26 @@
-# Baseline HTTP Service for 4-Way Benchmark
-# This workload runs WITHOUT any service mesh to establish performance baselines
-# Uses Fortio server instead of nginx for lightweight HTTP serving
+# Istio Ambient Mode HTTP Service for 4-Way Benchmark
+# This workload runs under Istio Ambient Mode (ztunnel L4, no sidecar)
+# Traffic path: client [ztunnel] -> service -> [ztunnel] backend fortio server
 ---
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: baseline-http
+  name: istio-ambient
   labels:
-    benchmark: baseline
+    benchmark: ambient
     workload-type: http
+    istio.io/dataplane-mode: ambient
     istio-injection: disabled
-    linkerd.io/inject: disabled
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: http-server
-  namespace: baseline-http
+  namespace: istio-ambient
   labels:
     app: http-server
     version: v1
-    benchmark: baseline
+    benchmark: ambient
 spec:
   replicas: 1
   selector:
@@ -31,10 +31,9 @@ spec:
       labels:
         app: http-server
         version: v1
-        benchmark: baseline
+        benchmark: ambient
       annotations:
         sidecar.istio.io/inject: "false"
-        linkerd.io/inject: disabled
     spec:
       nodeSelector:
         benchmark-role: server
@@ -75,10 +74,10 @@ apiVersion: v1
 kind: Service
 metadata:
   name: http-server
-  namespace: baseline-http
+  namespace: istio-ambient
   labels:
     app: http-server
-    benchmark: baseline
+    benchmark: ambient
 spec:
   type: ClusterIP
   selector:

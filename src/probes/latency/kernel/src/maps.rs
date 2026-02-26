@@ -54,6 +54,13 @@ pub static PACKET_DROPS: PerfEventArray<PacketDropEvent> =
 pub static CONNECTION_STATES: HashMap<ConnectionKey, ConnectionState> =
     HashMap::with_max_entries(MAX_CONNECTIONS, 0);
 
+/// Perf event array for context switch events
+///
+/// Events are written on each sched_switch tracepoint.
+#[map]
+pub static CONTEXT_SWITCHES: PerfEventArray<ContextSwitchEvent> =
+    PerfEventArray::new(0);
+
 /// Map to track XDP-level connection statistics
 ///
 /// Key: ConnectionKey (4-tuple)
