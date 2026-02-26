@@ -1,400 +1,259 @@
 # Service Mesh Benchmark
 
-A comprehensive benchmarking framework for comparing service mesh performance across different implementations (Istio, Cilium, Linkerd) on Oracle Cloud Infrastructure Free Tier.
+A benchmarking framework comparing service mesh architectures on Kubernetes, augmented with custom **eBPF kernel instrumentation** for kernel-level observability. Runs on Oracle Cloud Infrastructure Free Tier (ARM64).
 
-## Overview
+## Key Results
 
-This project provides an automated infrastructure and testing framework to benchmark various service mesh solutions under different workload patterns:
+Five-scenario comparison on OCI ARM64 (Kubernetes 1.32, Fortio load generator, 30s runs × 5 trials):
 
-- **HTTP Services** - RESTful API performance
-- **gRPC Services** - RPC protocol efficiency
-- **WebSocket Services** - Long-lived connection handling
-- **Database Clusters** - Stateful workload performance
-- **ML Batch Jobs** - Compute-intensive task execution
+| Scenario | QPS vs Baseline (10c) | p50 Latency (50c) | Context Switches/Req |
+|---|---|---|---|
+| **Baseline** (no mesh) | — | 42 ms | 202 |
+| **Cilium eBPF** (L3/L4) | **−0.7%** | 43 ms | 188 (−7%) |
+| **Istio Ambient** (ztunnel) | −49.7% | 54 ms | 283 (+40%) |
+| **Istio Sidecar** | −70.5% | 88 ms | 482 (+139%) |
+| **Cilium L7** (per-node Envoy) | −87.2% | 249 ms | 1,667 (+726%) |
+
+See [REPORT.md](REPORT.md) for the full analysis.
+
+---
 
 ## Project Structure
 
 ```
 service-mesh-benchmark/
-├── infrastructure/         # Infrastructure code
-│   ├── terraform/          # Infrastructure as Code
-│   │   ├── oracle-cloud/   # OCI K8s cluster deployment
-│   │   │   ├── main.tf     # VCN, instances, load balancer
-│   │   │   ├── variables.tf # Configuration variables
-│   │   │   ├── outputs.tf  # Resource outputs
-│   │   │   └── versions.tf # Provider requirements
-│   │   └── single-instance/ # OCI single instance with Ansible
-│   │       ├── main.tf     # Simple single VM deployment
-│   │       ├── variables.tf # Configuration variables
-│   │       └── outputs.tf  # Resource outputs
-│   └── ansible/            # Configuration management
-│       ├── playbooks/      # Setup automation
-│       └── inventory/      # Host configurations
-├── kubernetes/             # Kubernetes manifests
-│   ├── workloads/          # Benchmark workloads
-│   └── policies/           # Network policies
-├── benchmarks/             # Testing scripts
-│   ├── scripts/            # Test execution scripts
-│   └── results/            # Benchmark results
-├── .devcontainer/          # Development container config
-├── Makefile                # Automation targets
-└── generate-report.py      # Report generation
+├── src/
+│   ├── api/                        # FastAPI benchmark orchestration API
+│   ├── analysis/                   # Statistical and cost analysis modules
+│   ├── tests/                      # 7-phase test framework
+│   └── probes/                     # eBPF kernel instrumentation (Rust/Aya)
+│       ├── common/                 # Shared kernel/userspace types
+│       └── latency/
+│           ├── kernel/             # BPF programs (kprobes, tracepoints, XDP)
+│           └── daemon/             # Userspace collector and exporter
+├── workloads/
+│   └── kubernetes/                 # Benchmark workload manifests (Fortio)
+│       ├── baseline-http-service.yaml
+│       ├── http-service.yaml
+│       ├── cilium-l7-http-service.yaml
+│       ├── cilium-ingress-http-service.yaml
+│       └── istio-ambient-http-service.yaml
+├── infrastructure/
+│   ├── terraform/oracle-cloud/     # OCI cluster provisioning (Terraform)
+│   └── ansible/playbooks/          # Service mesh installation (Ansible)
+├── benchmarks/results/             # Benchmark output (gitignored)
+├── docs/                           # Architecture and implementation guides
+├── frontend/                       # Svelte dashboard for result visualization
+├── tools/ci/                       # GitHub Actions workflows
+├── generate-report.py              # Report generation with statistical analysis
+├── run-4way-benchmarks.sh          # 5-scenario Fortio benchmark runner
+├── run-benchmarks-with-ebpf.sh     # Coordinated Fortio + eBPF metrics collection
+├── run-comprehensive-benchmarks.sh # Full benchmark suite with cluster diagnostics
+└── Makefile                        # Build and deployment automation
 ```
 
-## Prerequisites
+---
+
+## Benchmark Scenarios
+
+All scenarios use [Fortio](https://github.com/fortio/fortio) as the load generator. Server pods are pinned to `worker-1`, client pods to `worker-2` for deterministic cross-node traffic.
+
+| Scenario | Namespace | Description |
+|---|---|---|
+| `baseline` | `baseline-http` | No service mesh — control group |
+| `cilium-ebpf` | `cilium-ebpf` | Cilium with eBPF L3/L4 only, no proxy |
+| `cilium-l7` | `cilium-l7` | Cilium with per-node Envoy via `CiliumNetworkPolicy` |
+| `istio-sidecar` | `http-benchmark` | Istio with per-pod Envoy sidecar injection |
+| `istio-ambient` | `istio-ambient` | Istio ambient mode (ztunnel, no sidecars) |
+
+---
+
+## eBPF Probe
+
+A custom Rust/[Aya](https://github.com/aya-rs/aya) eBPF probe collects kernel-level metrics alongside Fortio tests.
+
+**Attached probes:**
+- `sched_switch` tracepoint — context switches per request (sampled)
+- `tcp_v4_connect` / `tcp_close` kprobes — connection lifecycle
+- `kfree_skb` tracepoint — packet drops
+- XDP — packet inspection (falls back gracefully on VirtIO NICs)
+
+**Build and deploy to a worker node:**
+```bash
+export MASTER_IP=<your-master-public-ip>
+./src/probes/latency/deploy-to-node.sh <worker-internal-ip>
+```
+
+The script syncs source, builds natively on the ARM64 node (requires Rust nightly + `bpf-linker`), and verifies the binary.
+
+---
+
+## Quick Start
+
+### Prerequisites
 
 - Oracle Cloud Infrastructure account (Free Tier compatible)
 - Terraform >= 1.5.0
 - kubectl
 - Ansible
-- Python 3.9+
+- Python 3.9+ with [Poetry](https://python-poetry.org/)
+- Rust nightly + `bpf-linker` (for eBPF probe builds on worker nodes)
 - SSH key pair
 
-## Quick Start
-
-### 1. Configure OCI Credentials
-
-Copy the example configuration and fill in your OCI credentials:
+### 1. Deploy Infrastructure
 
 ```bash
-cp infrastructure/terraform/oracle-cloud/terraform.tfvars.example infrastructure/terraform/oracle-cloud/terraform.tfvars
-```
-
-Edit `terraform.tfvars` with your:
-- `tenancy_ocid`
-- `user_ocid`
-- `fingerprint`
-- `private_key_path`
-- `compartment_ocid`
-- `allowed_ssh_cidr` (your IP address for security)
-
-### 2. Deploy Infrastructure
-
-```bash
-# Initialize Terraform
+cp infrastructure/terraform/oracle-cloud/terraform.tfvars.example \
+   infrastructure/terraform/oracle-cloud/terraform.tfvars
+# Edit terraform.tfvars: tenancy_ocid, user_ocid, fingerprint,
+#                        private_key_path, allowed_ssh_cidr
 make init
-
-# Validate configuration
-make validate
-
-# Deploy infrastructure
 make deploy-infra
 ```
 
-This will create:
-- 1 Kubernetes master node
-- 2 worker nodes
-- VCN with public subnet
-- Load balancer
-- Security groups (restricted to your IP)
+This creates 1 master node (2 OCPU, 12 GB) and 2 worker nodes (1 OCPU, 6 GB each) on OCI ARM64.
 
-### 3. Configure kubectl
-
-After infrastructure deployment, SSH into the master node and copy the kubeconfig:
+### 2. Configure kubectl
 
 ```bash
-# Get SSH command
-cd infrastructure/terraform/oracle-cloud && terraform output ssh_to_master
-
-# SSH and copy kubeconfig to your local machine
-scp ubuntu@<master-ip>:~/.kube/config ~/.kube/config-benchmark
-export KUBECONFIG=~/.kube/config-benchmark
+# Tunnel the k8s API through the master node
+ssh -L 16443:localhost:6443 ubuntu@<master-ip> -N &
+export KUBECONFIG=~/.kube/config.oci.tunnel
 ```
 
-### 4. Install Service Mesh
-
-Choose your service mesh:
+### 3. Install Service Meshes
 
 ```bash
-# Option A: Istio
-make install-istio
+# Install Cilium (required for all scenarios)
+ansible-playbook -i infrastructure/ansible/inventory/hosts.ini \
+    infrastructure/ansible/playbooks/setup-cilium.yml
 
-# Option B: Cilium
-make install-cilium
+# Install Istio (for Istio scenarios)
+ansible-playbook -i infrastructure/ansible/inventory/hosts.ini \
+    infrastructure/ansible/playbooks/setup-istio.yml
 ```
 
-### 5. Deploy Workloads
+### 4. Deploy Workloads
 
 ```bash
-# Deploy all workloads
-make deploy-workloads
-
-# Or deploy individual workloads
-make deploy-http
-make deploy-grpc
-make deploy-websocket
-make deploy-database
-make deploy-ml
+kubectl apply -f workloads/kubernetes/baseline-http-service.yaml
+kubectl apply -f workloads/kubernetes/http-service.yaml
+kubectl apply -f workloads/kubernetes/cilium-l7-http-service.yaml
+kubectl apply -f workloads/kubernetes/cilium-ingress-http-service.yaml
+kubectl apply -f workloads/kubernetes/istio-ambient-http-service.yaml
 ```
 
-### 6. Run Benchmarks
+### 5. Run Benchmarks
 
 ```bash
-# Run all tests
-make test-all
+export MASTER_IP=<master-public-ip>
 
-# Or run individual tests
-make test-http
-make test-grpc
-make test-ml
+# Fortio only (5 scenarios, 3 concurrency levels, 5 trials each)
+./run-4way-benchmarks.sh
+
+# Fortio + eBPF kernel metrics (requires deployed probes)
+./run-benchmarks-with-ebpf.sh
+
+# Full suite with cluster diagnostics
+./run-comprehensive-benchmarks.sh
 ```
 
-### 7. Generate Reports
+Results are written to `benchmarks/results/` (gitignored).
+
+### 6. Generate Report
 
 ```bash
-# Collect metrics
-make collect-metrics
-
-# Generate HTML report
-make generate-report
-
-# View report
-open benchmarks/results/report.html
+python generate-report.py
 ```
 
-## Detailed Usage
+---
 
-### Infrastructure Management
+## Python API
+
+A FastAPI application at `src/api/` orchestrates benchmark runs and exposes results:
 
 ```bash
-# Show cluster status
-make status
-
-# SSH into master node
-make ssh-master
-
-# Watch pod status
-make watch
-
-# Destroy infrastructure
-make destroy
+poetry install
+poetry run uvicorn src.api.main:app --reload
 ```
 
-### Testing Individual Components
+Endpoints: `/health`, `/benchmarks`, `/metrics`, `/reports`, `/ebpf`, `/kubernetes`
 
-#### HTTP Load Testing
-
-```bash
-cd benchmarks/scripts
-SERVICE_URL=http-server.http-benchmark.svc.cluster.local \
-TEST_DURATION=120 \
-CONCURRENT_CONNECTIONS=200 \
-bash http-load-test.sh
-```
-
-#### gRPC Testing
-
-```bash
-cd benchmarks/scripts
-SERVICE_URL=grpc-server.grpc-benchmark.svc.cluster.local:9000 \
-bash grpc-test.sh
-```
-
-#### Metrics Collection
-
-```bash
-cd benchmarks/scripts
-RESULTS_DIR=../results \
-bash collect-metrics.sh
-```
-
-### Ansible Automation
-
-```bash
-# Configure inventory
-cp ansible/inventory/hosts.ini.example ansible/inventory/hosts.ini
-
-# Edit with your instance IPs
-
-# Run tests via Ansible
-ansible-playbook -i ansible/inventory/hosts.ini ansible/playbooks/run-tests.yml
-```
-
-## Workload Descriptions
-
-### HTTP Service
-- **Pods**: 3 replicas of Nginx
-- **Client**: 2 replicas generating continuous requests
-- **Metrics**: Latency, throughput, error rate
-- **Port**: 30080 (NodePort)
-
-### gRPC Service
-- **Pods**: 3 replicas of grpcbin
-- **Client**: 2 replicas with grpcurl
-- **Metrics**: RPC latency, throughput
-- **Port**: 30090 (NodePort)
-
-### WebSocket Service
-- **Pods**: 3 replicas of echo server
-- **Metrics**: Connection stability, message latency
-- **Port**: 30808 (NodePort)
-
-### Database Cluster
-- **StatefulSet**: 3 Redis instances
-- **Client**: 2 replicas running redis-benchmark
-- **Metrics**: Read/write latency, throughput
-
-### ML Batch Job
-- **Job**: 5 completions, 2 parallel
-- **Task**: RandomForest training on synthetic data
-- **Metrics**: Completion time, resource usage
-
-## Service Mesh Comparison
-
-The framework allows comparing:
-
-1. **Performance Overhead**
-   - Request latency (p50, p95, p99)
-   - Throughput degradation
-   - CPU/memory overhead
-
-2. **Resource Utilization**
-   - Control plane resources
-   - Data plane (sidecar) resources
-   - Total cluster overhead
-
-3. **Feature Support**
-   - Traffic management
-   - Observability
-   - Security policies
-
-## Cost Optimization
-
-This project is optimized for Oracle Cloud Free Tier:
-
-- **Compute**: Up to 4 OCPUs and 24GB RAM (ARM)
-- **Network**: 10TB outbound per month
-- **Storage**: 200GB block storage
-
-### Recommended Configuration
-
-```hcl
-instance_ocpus = 2      # Master node
-instance_memory_gb = 12 # Master node
-worker_count = 2        # Worker nodes
-worker_ocpus = 1        # Per worker
-worker_memory_gb = 6    # Per worker
-```
+---
 
 ## Development
 
-### Using Dev Container
-
-Open in VS Code with Remote - Containers extension:
+### Install dependencies
 
 ```bash
-code .
-# Reopen in Container when prompted
+poetry install
 ```
 
-The dev container includes:
-- kubectl, helm, terraform
-- Benchmark tools (wrk, ghz, grpcurl)
-- Python with required packages
-- Ansible
-
-### Running Locally with Minikube
+### Code quality
 
 ```bash
-# Start Minikube
-minikube start --cpus 4 --memory 8192
-
-# Deploy workloads
-kubectl apply -f kubernetes/workloads/
-
-# Run tests
-cd benchmarks/scripts && bash http-load-test.sh
+make lint      # ruff + black check + mypy
+make format    # auto-format
+make test      # pytest (Phase 1 pre-deployment tests, no cluster required)
 ```
 
-## Troubleshooting
+### Test phases
 
-### Terraform Issues
+The test framework is organized into 7 phases:
 
-```bash
-# If terraform state is corrupted
-cd infrastructure/terraform/oracle-cloud
-terraform state list
-terraform state rm <resource>
+| Phase | Description | Requires |
+|---|---|---|
+| 1 | Pre-deployment validation | Nothing |
+| 2 | Infrastructure readiness | Running cluster |
+| 3 | Baseline performance | No-mesh workloads |
+| 4 | Service mesh tests | Installed mesh |
+| 5 | Comparative analysis | All scenarios |
+| 6 | Stress tests | All scenarios |
 
-# Refresh state
-terraform refresh
+---
+
+## Infrastructure
+
+**Cluster topology:**
+```
+master-node  (2 OCPU, 12 GB) — control plane only
+worker-1     (1 OCPU,  6 GB) — HTTP server pods
+worker-2     (1 OCPU,  6 GB) — Fortio client pods
 ```
 
-### Kubernetes Issues
+**OCI Free Tier allocation used:**
+- Compute: 4 OCPUs, 24 GB RAM (Ampere A1, ARM64)
+- Network: OCI VCN, private subnet, VirtIO NIC (`enp0s6`)
 
-```bash
-# Check node status
-kubectl get nodes
+---
 
-# Check pod logs
-kubectl logs -n http-benchmark <pod-name>
+## Security
 
-# Describe pod for events
-kubectl describe pod -n http-benchmark <pod-name>
+- Never commit `terraform.tfvars` or `*.pem`/`*.key` files (covered by `.gitignore`)
+- `MASTER_IP` and `SSH_KEY` in benchmark scripts must be set via environment variables
+- SSH access should be restricted to your IP via `allowed_ssh_cidr` in `terraform.tfvars`
+- Destroy infrastructure when not in use: `make destroy`
 
-# Check service mesh status
-istioctl version  # For Istio
-cilium status     # For Cilium
-```
-
-### Benchmark Script Issues
-
-```bash
-# Ensure tools are installed
-which wrk ghz grpcurl
-
-# Check service accessibility
-kubectl get svc -n http-benchmark
-kubectl port-forward -n http-benchmark svc/http-server 8080:80
-
-# Test locally
-curl http://localhost:8080
-```
-
-## Security Considerations
-
-### Implemented Security Measures
-- SSH access restricted to specific CIDR (configure in `terraform.tfvars`)
-- Kubernetes API restricted to specific CIDR
-- NodePort access can be restricted
-- Secrets not committed to version control
-
-### Best Practices
-
-1. **Always** set `allowed_ssh_cidr` to your specific IP
-2. **Never** commit `terraform.tfvars` or `*.pem` files
-3. **Rotate** SSH keys regularly
-4. **Destroy** infrastructure when not in use to minimize exposure
-5. **Monitor** OCI billing dashboard for unexpected charges
+---
 
 ## Contributing
 
-Contributions welcome! Areas for improvement:
+Contributions welcome. Useful areas:
 
-- Additional service mesh implementations (Linkerd, Consul)
-- More workload patterns (streaming, event-driven)
-- Enhanced metrics collection (distributed tracing)
-- Multi-cloud support (AWS, GCP, Azure)
-- CI/CD pipeline integration
+- Additional mesh implementations (Linkerd, Consul)
+- Multi-region benchmark support
+- BPF ring buffer migration (replaces perf buffers for TCP tracking)
+- Distributed tracing integration
+- Multi-cloud infrastructure (AWS, GCP)
 
 ## License
 
-MIT License - See LICENSE file for details
-
-## Acknowledgments
-
-- Oracle Cloud Infrastructure for Free Tier resources
-- Istio, Cilium, and Linkerd communities
-- Kubernetes community
-- Benchmark tool authors (wrk, ghz, etc.)
+MIT License — see [LICENSE](LICENSE) for details.
 
 ## References
 
 - [Istio Documentation](https://istio.io/docs/)
 - [Cilium Documentation](https://docs.cilium.io/)
+- [Aya eBPF Framework](https://aya-rs.dev/)
+- [Fortio Load Testing Tool](https://github.com/fortio/fortio)
 - [Oracle Cloud Free Tier](https://www.oracle.com/cloud/free/)
-- [Kubernetes Documentation](https://kubernetes.io/docs/)
-
----
-
-**Note**: This is a research/educational project. For production service mesh deployments, consult official documentation and consider managed services.
