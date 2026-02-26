@@ -1,26 +1,26 @@
-# Baseline HTTP Service for 4-Way Benchmark
-# This workload runs WITHOUT any service mesh to establish performance baselines
-# Uses Fortio server instead of nginx for lightweight HTTP serving
+# Cilium L7 (Per-Node Envoy) HTTP Service for Sidecar vs Sidecarless Benchmark
+# This workload uses CiliumNetworkPolicy with L7 HTTP rules to force Cilium's
+# per-node Envoy proxy into the east-west datapath - true sidecarless L7 comparison
+# Traffic path: client -> eBPF -> per-node Envoy (L7 inspect) -> backend
 ---
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: baseline-http
+  name: cilium-l7
   labels:
-    benchmark: baseline
+    benchmark: cilium-l7
     workload-type: http
     istio-injection: disabled
-    linkerd.io/inject: disabled
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: http-server
-  namespace: baseline-http
+  namespace: cilium-l7
   labels:
     app: http-server
     version: v1
-    benchmark: baseline
+    benchmark: cilium-l7
 spec:
   replicas: 1
   selector:
@@ -31,10 +31,9 @@ spec:
       labels:
         app: http-server
         version: v1
-        benchmark: baseline
+        benchmark: cilium-l7
       annotations:
         sidecar.istio.io/inject: "false"
-        linkerd.io/inject: disabled
     spec:
       nodeSelector:
         benchmark-role: server
@@ -75,10 +74,10 @@ apiVersion: v1
 kind: Service
 metadata:
   name: http-server
-  namespace: baseline-http
+  namespace: cilium-l7
   labels:
     app: http-server
-    benchmark: baseline
+    benchmark: cilium-l7
 spec:
   type: ClusterIP
   selector:
@@ -88,3 +87,28 @@ spec:
     port: 8080
     targetPort: 8080
     protocol: TCP
+---
+# CiliumNetworkPolicy with L7 HTTP rules
+# This forces Cilium to redirect traffic through its per-node Envoy proxy
+# for L7 HTTP inspection - the sidecarless equivalent of Istio's sidecar Envoy
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: http-server-l7
+  namespace: cilium-l7
+spec:
+  endpointSelector:
+    matchLabels:
+      app: http-server
+  ingress:
+  - fromEndpoints:
+    - {}
+    toPorts:
+    - ports:
+      - port: "8080"
+        protocol: TCP
+      rules:
+        http:
+        - method: GET
+        - method: POST
+        - method: HEAD

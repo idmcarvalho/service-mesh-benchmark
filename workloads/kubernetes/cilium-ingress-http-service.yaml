@@ -1,26 +1,25 @@
-# Baseline HTTP Service for 4-Way Benchmark
-# This workload runs WITHOUT any service mesh to establish performance baselines
-# Uses Fortio server instead of nginx for lightweight HTTP serving
+# Cilium eBPF L4-Only HTTP Service for Sidecar vs Sidecarless Benchmark
+# This workload runs through Cilium's eBPF datapath at L3/L4 (no L7 proxy)
+# Traffic path: client -> eBPF -> ClusterIP -> eBPF -> backend (kernel-level, no userspace proxy)
 ---
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: baseline-http
+  name: cilium-ebpf
   labels:
-    benchmark: baseline
+    benchmark: cilium-ebpf
     workload-type: http
     istio-injection: disabled
-    linkerd.io/inject: disabled
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: http-server
-  namespace: baseline-http
+  namespace: cilium-ebpf
   labels:
     app: http-server
     version: v1
-    benchmark: baseline
+    benchmark: cilium-ebpf
 spec:
   replicas: 1
   selector:
@@ -31,10 +30,9 @@ spec:
       labels:
         app: http-server
         version: v1
-        benchmark: baseline
+        benchmark: cilium-ebpf
       annotations:
         sidecar.istio.io/inject: "false"
-        linkerd.io/inject: disabled
     spec:
       nodeSelector:
         benchmark-role: server
@@ -75,10 +73,10 @@ apiVersion: v1
 kind: Service
 metadata:
   name: http-server
-  namespace: baseline-http
+  namespace: cilium-ebpf
   labels:
     app: http-server
-    benchmark: baseline
+    benchmark: cilium-ebpf
 spec:
   type: ClusterIP
   selector:
