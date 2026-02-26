@@ -4,12 +4,14 @@
 
 use anyhow::{Context, Result};
 use aya::{
-    maps::perf::AsyncPerfEventArray,
+    maps::{perf::AsyncPerfEventArray, HashMap as BpfHashMap, MapData},
     programs::{KProbe, TracePoint, Xdp, XdpFlags},
     Bpf,
 };
 use log::{info, warn};
 use std::path::PathBuf;
+
+use crate::types::XdpPacketStats;
 
 /// Result of attaching an optional eBPF program
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -222,6 +224,21 @@ impl ProbeLoader {
             None => warn!("  ⚠ kfree_skb_tracepoint program not found (optional)"),
         }
 
+        // Attach sched_switch tracepoint for context switch tracking
+        match self.ebpf.program_mut("sched_switch") {
+            Some(prog) => {
+                let program: &mut TracePoint = prog
+                    .try_into()
+                    .context("Failed to get sched_switch as TracePoint")?;
+                program.load().context("Failed to load sched_switch")?;
+                match program.attach("sched", "sched_switch") {
+                    Ok(_) => info!("  ✓ Attached to sched:sched_switch tracepoint"),
+                    Err(e) => warn!("  ⚠ Failed to attach sched:sched_switch tracepoint: {}", e),
+                }
+            }
+            None => warn!("  ⚠ sched_switch program not found (optional)"),
+        }
+
         Ok(())
     }
 
@@ -279,9 +296,58 @@ impl ProbeLoader {
             .context("Failed to create AsyncPerfEventArray from PACKET_DROPS map")
     }
 
+    /// Get the perf event array for reading context switch events
+    pub fn get_context_switch_array(&mut self) -> Result<AsyncPerfEventArray<MapData>> {
+        let map = self
+            .ebpf
+            .take_map("CONTEXT_SWITCHES")
+            .context("CONTEXT_SWITCHES map not found in eBPF object")?;
+
+        AsyncPerfEventArray::try_from(map)
+            .context("Failed to create AsyncPerfEventArray from CONTEXT_SWITCHES map")
+    }
+
+    /// Read XDP statistics from the STATS BPF map
+    pub fn read_xdp_stats(&mut self, elapsed_secs: u64) -> XdpPacketStats {
+        use probe_common::constants::*;
+
+        let stats_map = match self.ebpf.map("STATS") {
+            Some(map) => map,
+            None => {
+                warn!("STATS map not found, returning empty XDP stats");
+                return XdpPacketStats::default();
+            }
+        };
+
+        let stats: BpfHashMap<&aya::maps::MapData, u32, u64> = match BpfHashMap::try_from(stats_map) {
+            Ok(m) => m,
+            Err(e) => {
+                warn!("Failed to read STATS map: {}", e);
+                return XdpPacketStats::default();
+            }
+        };
+
+        let read_stat = |key: u32| -> u64 {
+            stats.get(&key, 0).unwrap_or(0)
+        };
+
+        let total = read_stat(STAT_XDP_PACKETS);
+        XdpPacketStats {
+            total_packets: total,
+            ipv4_packets: read_stat(STAT_XDP_IPV4_PACKETS),
+            tcp_packets: read_stat(STAT_XDP_TCP_PACKETS),
+            udp_packets: read_stat(STAT_XDP_UDP_PACKETS),
+            icmp_packets: read_stat(STAT_XDP_ICMP_PACKETS),
+            other_packets: read_stat(STAT_XDP_OTHER_PACKETS),
+            packets_per_second: if elapsed_secs > 0 {
+                total as f64 / elapsed_secs as f64
+            } else {
+                0.0
+            },
+        }
+    }
+
     /// Get reference to the eBPF object
-    ///
-    /// Useful for accessing maps or programs directly.
     pub fn ebpf(&mut self) -> &mut Bpf {
         &mut self.ebpf
     }

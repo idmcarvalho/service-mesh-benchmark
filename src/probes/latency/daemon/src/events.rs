@@ -2,7 +2,7 @@
 //!
 //! Handles reading events from per-CPU perf buffers and processing them asynchronously.
 
-use crate::{collector::MetricsCollector, types::LatencyEvent};
+use crate::{collector::MetricsCollector, types::{LatencyEvent, kernel::ContextSwitchEvent}};
 use anyhow::Result;
 use aya::{maps::{perf::AsyncPerfEventArray, MapData}, util::online_cpus};
 use bytes::BytesMut;
@@ -97,6 +97,43 @@ impl EventProcessor {
                         // Add to collector
                         let mut collector = collector_clone.lock().await;
                         collector.add_event(&event);
+                    }
+                }
+            });
+        }
+
+        Ok(())
+    }
+
+    /// Spawn per-CPU event readers for context switch events
+    pub async fn spawn_context_switch_readers(&self, mut perf_array: AsyncPerfEventArray<MapData>) -> Result<()> {
+        let cpus = online_cpus()?;
+        info!("Spawning context switch readers for {} CPUs", cpus.len());
+
+        for cpu_id in cpus {
+            let mut buf = perf_array.open(cpu_id, None)?;
+            let collector_clone = Arc::clone(&self.collector);
+
+            tokio::spawn(async move {
+                let mut buffers = (0..10)
+                    .map(|_| BytesMut::with_capacity(std::mem::size_of::<ContextSwitchEvent>()))
+                    .collect::<Vec<_>>();
+
+                loop {
+                    let events = match buf.read_events(&mut buffers).await {
+                        Ok(events) => events,
+                        Err(e) => {
+                            warn!("Error reading context switch events from CPU {}: {}", cpu_id, e);
+                            continue;
+                        }
+                    };
+
+                    // Just count the events - we don't need to parse each one
+                    if events.read > 0 {
+                        let mut collector = collector_clone.lock().await;
+                        for _ in 0..events.read {
+                            collector.add_context_switch();
+                        }
                     }
                 }
             });

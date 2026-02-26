@@ -192,5 +192,8 @@ pub const STAT_XDP_ICMP_PACKETS: u32 = 14;
 /// Number of XDP other protocol packets
 pub const STAT_XDP_OTHER_PACKETS: u32 = 15;
 
+/// Number of context switches observed
+pub const STAT_CONTEXT_SWITCHES: u32 = 16;
+
 /// Total number of statistics counters
-pub const MAX_STATS: u32 = 16;
+pub const MAX_STATS: u32 = 32;

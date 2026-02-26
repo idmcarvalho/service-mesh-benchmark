@@ -22,7 +22,7 @@ pub mod kernel {
     //! These are re-exported from the probe-common crate and must
     //! maintain binary compatibility with the eBPF programs.
 
-    pub use probe_common::types::{ConnectionKey, LatencyEvent, PacketDropEvent, ConnectionState};
+    pub use probe_common::types::{ConnectionKey, LatencyEvent, PacketDropEvent, ConnectionState, ContextSwitchEvent};
     pub use probe_common::constants;
 }
 
@@ -50,6 +50,10 @@ pub struct LatencyMetrics {
     pub packet_drops: PacketDropStats,
     /// Connection state statistics
     pub connection_states: ConnectionStateStats,
+    /// Context switch statistics
+    pub context_switches: ContextSwitchStats,
+    /// XDP packet statistics
+    pub xdp_stats: XdpPacketStats,
 }
 
 /// Metrics for a single connection
@@ -176,6 +180,34 @@ pub struct ConnectionStateStats {
     pub avg_duration_seconds: f64,
     /// Connection states breakdown
     pub states_breakdown: HashMap<String, u64>,
+}
+
+/// Context switch statistics
+#[derive(Serialize, Deserialize, Debug, Default, Clone)]
+pub struct ContextSwitchStats {
+    /// Total context switches observed during collection
+    pub total_switches: u64,
+    /// Context switches per second
+    pub switches_per_second: f64,
+}
+
+/// XDP packet statistics
+#[derive(Serialize, Deserialize, Debug, Default, Clone)]
+pub struct XdpPacketStats {
+    /// Total packets observed at XDP level
+    pub total_packets: u64,
+    /// IPv4 packets
+    pub ipv4_packets: u64,
+    /// TCP packets
+    pub tcp_packets: u64,
+    /// UDP packets
+    pub udp_packets: u64,
+    /// ICMP packets
+    pub icmp_packets: u64,
+    /// Other protocol packets
+    pub other_packets: u64,
+    /// Packets per second
+    pub packets_per_second: f64,
 }
 
 /// Calculate percentiles from a sorted vector of samples

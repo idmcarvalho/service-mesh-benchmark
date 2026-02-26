@@ -24,6 +24,8 @@ pub struct MetricsCollector {
     connection_states: ConnectionStateStats,
     /// Connection durations for calculating average
     connection_durations: Vec<f64>,
+    /// Context switch counter
+    context_switch_count: u64,
 }
 
 impl MetricsCollector {
@@ -140,6 +142,11 @@ impl MetricsCollector {
         }
     }
 
+    /// Record a context switch event
+    pub fn add_context_switch(&mut self) {
+        self.context_switch_count += 1;
+    }
+
     /// Generate aggregated metrics
     ///
     /// # Arguments
@@ -199,6 +206,15 @@ impl MetricsCollector {
         connection_states.avg_duration_seconds = avg_duration_seconds;
         connection_states.active_connections = self.connection_latencies.len() as u64;
 
+        let context_switches = ContextSwitchStats {
+            total_switches: self.context_switch_count,
+            switches_per_second: if elapsed_secs > 0 {
+                self.context_switch_count as f64 / elapsed_secs as f64
+            } else {
+                0.0
+            },
+        };
+
         LatencyMetrics {
             timestamp: chrono::Utc::now().to_rfc3339(),
             duration_seconds: elapsed_secs,
@@ -209,6 +225,8 @@ impl MetricsCollector {
             event_type_breakdown: self.event_types.clone(),
             packet_drops: self.packet_drops.clone(),
             connection_states,
+            context_switches,
+            xdp_stats: XdpPacketStats::default(),
         }
     }
 

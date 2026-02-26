@@ -5,7 +5,7 @@
 
 use aya_ebpf::{
     macros::{kprobe, tracepoint, xdp},
-    programs::{ProbeContext, XdpContext},
+    programs::{ProbeContext, TracePointContext, XdpContext},
 };
 use aya_ebpf::bindings::xdp_action;
 use probe_common::{constants::*, types::*};
@@ -285,14 +285,14 @@ fn try_tcp_drop(ctx: &ProbeContext) -> Result<u32, i64> {
 /// This tracepoint captures all packet drops at the network stack level,
 /// providing comprehensive drop tracking across all protocols.
 #[tracepoint]
-pub fn kfree_skb_tracepoint(ctx: ProbeContext) -> u32 {
+pub fn kfree_skb_tracepoint(ctx: TracePointContext) -> u32 {
     match try_kfree_skb(&ctx) {
         Ok(ret) => ret,
         Err(_) => 1,
     }
 }
 
-fn try_kfree_skb(ctx: &ProbeContext) -> Result<u32, i64> {
+fn try_kfree_skb(ctx: &TracePointContext) -> Result<u32, i64> {
     increment_stat(STAT_TOTAL_EVENTS);
     increment_stat(STAT_PACKET_DROPS);
 
@@ -507,6 +507,55 @@ fn try_tcp_close(ctx: &ProbeContext) -> Result<u32, i64> {
             let _ = CONNECTION_STATES.insert(&key, &updated_state, 0);
         }
     }
+
+    Ok(0)
+}
+
+// ============================================================================
+// Context Switch Tracking
+// ============================================================================
+
+/// Track scheduler context switches
+///
+/// Attached to: sched:sched_switch tracepoint
+///
+/// Counts context switches during the benchmark to measure scheduling
+/// overhead introduced by service mesh proxies.
+#[tracepoint]
+pub fn sched_switch(ctx: TracePointContext) -> u32 {
+    match try_sched_switch(&ctx) {
+        Ok(ret) => ret,
+        Err(_) => 1,
+    }
+}
+
+fn try_sched_switch(ctx: &TracePointContext) -> Result<u32, i64> {
+    increment_stat(STAT_CONTEXT_SWITCHES);
+
+    // sched_switch tracepoint format (offsets relative to tracepoint args):
+    // field:char prev_comm[16]; offset:8; size:16;
+    // field:pid_t prev_pid;     offset:24; size:4;
+    // field:int prev_prio;      offset:28; size:4;
+    // field:long prev_state;    offset:32; size:8;
+    // field:char next_comm[16]; offset:40; size:16;
+    // field:pid_t next_pid;     offset:56; size:4;
+    // field:int next_prio;      offset:60; size:4;
+    //
+    // Aya TracePointContext::read_at uses offsets from the start of
+    // the tracepoint args (after common header fields).
+
+    let prev_pid: u32 = unsafe { ctx.read_at(16).unwrap_or(0) };
+    let next_pid: u32 = unsafe { ctx.read_at(48).unwrap_or(0) };
+
+    let timestamp = get_timestamp();
+
+    let event = ContextSwitchEvent {
+        timestamp_ns: timestamp,
+        prev_pid,
+        next_pid,
+    };
+
+    CONTEXT_SWITCHES.output(ctx, &event, 0);
 
     Ok(0)
 }

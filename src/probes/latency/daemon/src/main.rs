@@ -9,6 +9,9 @@
 //! # Run for 60 seconds and export to JSON
 //! sudo ./latency-probe --duration 60 --output metrics.json
 //!
+//! # Run with XDP on a specific interface
+//! sudo ./latency-probe --duration 60 --interface enp0s6
+//!
 //! # Run with sampling (capture 1 in 100 events)
 //! sudo ./latency-probe --duration 60 --sample-rate 100
 //!
@@ -56,6 +59,10 @@ struct Args {
     #[clap(short, long, default_value_t = 1)]
     sample_rate: u32,
 
+    /// Network interface for XDP attachment (e.g., enp0s6, eth0)
+    #[clap(short, long)]
+    interface: Option<String>,
+
     /// Filter by specific service (format: IP:PORT) - NOT YET IMPLEMENTED
     #[clap(long)]
     filter_service: Option<String>,
@@ -100,6 +107,9 @@ async fn main() -> Result<()> {
     info!("   Output: {:?}", args.output);
     info!("   Format: {}", args.format);
     info!("   Sample rate: 1 in {}", args.sample_rate);
+    if let Some(ref iface) = args.interface {
+        info!("   XDP interface: {}", iface);
+    }
 
     // Validate sample rate
     if args.sample_rate == 0 {
@@ -126,11 +136,18 @@ async fn main() -> Result<()> {
     // Attach kprobes
     loader.attach_kprobes()?;
 
-    // Attach tracepoints
+    // Attach tracepoints (kfree_skb + sched_switch)
     loader.attach_tracepoints()?;
 
-    // Get perf event array
+    // Attach XDP if interface specified
+    if let Some(ref iface) = args.interface {
+        use aya::programs::XdpFlags;
+        loader.attach_xdp(iface, XdpFlags::default())?;
+    }
+
+    // Get perf event arrays
     let perf_array = loader.get_perf_array()?;
+    let context_switch_array = loader.get_context_switch_array()?;
 
     info!("Collecting metrics...");
 
@@ -140,8 +157,11 @@ async fn main() -> Result<()> {
     // Create event processor
     let processor = EventProcessor::new(Arc::clone(&collector), args.sample_rate, args.verbose);
 
-    // Spawn per-CPU event readers
+    // Spawn per-CPU event readers for latency events
     processor.spawn_cpu_readers(perf_array).await?;
+
+    // Spawn per-CPU event readers for context switch events
+    processor.spawn_context_switch_readers(context_switch_array).await?;
 
     // Spawn progress reporter
     processor.spawn_progress_reporter(args.progress_interval);
@@ -172,9 +192,13 @@ async fn main() -> Result<()> {
 
     info!("Generating metrics report...");
 
+    // Read XDP stats from BPF STATS map before generating metrics
+    let xdp_stats = loader.read_xdp_stats(elapsed);
+
     // Generate final metrics
-    let collector = collector.lock().await;
-    let metrics = collector.generate_metrics(elapsed);
+    let mut collector = collector.lock().await;
+    let mut metrics = collector.generate_metrics(elapsed);
+    metrics.xdp_stats = xdp_stats;
 
     // Export metrics based on format
     match export_format {
@@ -221,7 +245,7 @@ fn print_summary(metrics: &LatencyMetrics) {
     info!("  Unique connections: {}", metrics.connections.len());
     info!("  Duration:           {} seconds", metrics.duration_seconds);
     info!("");
-    info!("  Latency Percentiles (μs):");
+    info!("  Latency Percentiles (us):");
     info!("    p50:  {:>10.2}", metrics.percentiles.p50);
     info!("    p75:  {:>10.2}", metrics.percentiles.p75);
     info!("    p90:  {:>10.2}", metrics.percentiles.p90);
@@ -250,6 +274,15 @@ fn print_summary(metrics: &LatencyMetrics) {
         "    tcp_cleanup_rbuf: {:>8}",
         metrics.event_type_breakdown.tcp_cleanup_rbuf
     );
+    info!("");
+    info!("  Context Switches:");
+    info!("    total:            {:>8}", metrics.context_switches.total_switches);
+    info!("    per second:       {:>8.1}", metrics.context_switches.switches_per_second);
+    info!("");
+    info!("  XDP Packets:");
+    info!("    total:            {:>8}", metrics.xdp_stats.total_packets);
+    info!("    tcp:              {:>8}", metrics.xdp_stats.tcp_packets);
+    info!("    per second:       {:>8.1}", metrics.xdp_stats.packets_per_second);
     info!("");
     info!("============================================");
 }
