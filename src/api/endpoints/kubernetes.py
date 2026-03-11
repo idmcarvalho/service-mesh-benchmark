@@ -1,10 +1,13 @@
 """Kubernetes integration endpoints."""
 
+import logging
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, status
 from kubernetes import client
 from kubernetes import config as k8s_config
+
+logger = logging.getLogger(__name__)
 
 from src.api.config import MESH_COMPONENTS
 from src.tests.models import MeshType
@@ -99,8 +102,8 @@ async def get_mesh_status(namespace: str, mesh_type: MeshType) -> dict[str, Any]
                 pods = v1.list_namespaced_pod(namespace, label_selector=f"app={component}")
                 if pods.items:
                     components_found.append(component)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Could not check component %s: %s", component, e)
 
         return {
             "mesh_type": mesh_type.value,

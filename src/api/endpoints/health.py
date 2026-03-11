@@ -1,11 +1,14 @@
 """Health check and system status endpoints."""
 
+import logging
 from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter
 from kubernetes import client
 from kubernetes import config as k8s_config
+
+logger = logging.getLogger(__name__)
 
 from src.api.config import BENCHMARKS_DIR, EBPF_PROBE_DIR, RESULTS_DIR
 from src.api.models import HealthResponse
@@ -21,8 +24,8 @@ async def health_check() -> HealthResponse:
     try:
         k8s_config.load_kube_config()
         k8s_connected = True
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("Kubernetes not available: %s", e)
 
     all_jobs = await get_all_jobs()
     active_jobs = len([j for j in all_jobs.values() if j["status"] == "running"])

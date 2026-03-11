@@ -127,10 +127,10 @@ class ANOVAResult(BaseModel):
     @computed_field
     @property
     def eta_squared(self) -> float:
-        """Calculate eta-squared (effect size for ANOVA)."""
-        # This is a simplified calculation
-        # In practice, you'd calculate from sum of squares
-        return 0.0  # Placeholder - implement based on actual data
+        """Calculate eta-squared (effect size for ANOVA) from F-statistic."""
+        ss_between = self.f_statistic * self.degrees_of_freedom_between
+        ss_total = ss_between + self.degrees_of_freedom_within
+        return ss_between / ss_total if ss_total > 0 else 0.0
 
 
 class OutlierAnalysis(BaseModel):
