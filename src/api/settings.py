@@ -77,6 +77,17 @@ class Settings(BaseSettings):
         description="Directory for storing benchmark results",
     )
 
+    # Database / Redis (placeholders; not yet implemented — use in-memory by default)
+    database_enabled: bool = Field(
+        default=False,
+        description="Enable database backend (not yet implemented)",
+    )
+
+    redis_enabled: bool = Field(
+        default=False,
+        description="Enable Redis backend (not yet implemented)",
+    )
+
     # eBPF probe configuration
     ebpf_probe_dir: Optional[Path] = Field(
         default=None,

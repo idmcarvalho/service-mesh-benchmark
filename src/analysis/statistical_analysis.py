@@ -363,7 +363,7 @@ def detect_outliers_zscore(
     arr = np.array(data)
 
     mean = np.mean(arr)
-    std = np.std(arr)
+    std = np.std(arr, ddof=1)  # Sample std dev, consistent with rest of codebase
 
     if std == 0:
         return OutlierAnalysis(

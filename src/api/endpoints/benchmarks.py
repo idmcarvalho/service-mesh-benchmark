@@ -2,7 +2,8 @@
 
 import asyncio
 import json
-from datetime import datetime
+import os
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
@@ -10,6 +11,8 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, status
 
 from src.api.config import BENCHMARK_SCRIPTS, BENCHMARKS_DIR, RESULTS_DIR
 from src.api.models import BenchmarkRequest, BenchmarkResponse, JobStatus
+from src.api.persistence import sync_job_to_persistence
+from src.api.settings import settings
 from src.api.state import delete_job, get_all_jobs, get_job, set_job, update_job
 
 router = APIRouter(prefix="/benchmarks", tags=["Benchmarks"])
@@ -27,7 +30,7 @@ async def run_benchmark_script(
         await update_job(job_id, {
             "status": "failed",
             "error": f"Script not found: {script_name}",
-            "completed_at": datetime.utcnow()
+            "completed_at": datetime.now(tz=timezone.utc)
         })
         return
 
@@ -35,9 +38,9 @@ async def run_benchmark_script(
         # Update status
         await update_job(job_id, {"status": "running"})
 
-        # Prepare environment
-        env: dict[str, str] = {}
-        env.update(env_vars)
+        # Inherit the current process environment so PATH etc. are available,
+        # then layer the benchmark-specific variables on top.
+        env = {**os.environ, **env_vars}
 
         # Run the script
         process = await asyncio.create_subprocess_exec(
@@ -78,15 +81,10 @@ async def run_benchmark_script(
         })
 
     finally:
-        await update_job(job_id, {"completed_at": datetime.utcnow()})
-
-        # Persist job to JSON if persistence is enabled
-        from src.api.settings import settings
+        await update_job(job_id, {"completed_at": datetime.now(tz=timezone.utc)})
 
         if settings.persistence_enabled:
             try:
-                from src.api.persistence import sync_job_to_persistence
-
                 job = await get_job(job_id)
                 if job:
                     await sync_job_to_persistence(job_id, job)
@@ -100,7 +98,7 @@ async def start_benchmark(
 ) -> BenchmarkResponse:
     """Start a benchmark test."""
     # Generate job ID
-    job_id = f"{request.test_type}_{request.mesh_type}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}"
+    job_id = f"{request.test_type}_{request.mesh_type}_{datetime.now(tz=timezone.utc).strftime('%Y%m%d_%H%M%S')}"
 
     # Get script name
     script_name = BENCHMARK_SCRIPTS.get(request.test_type)
@@ -123,7 +121,7 @@ async def start_benchmark(
         env_vars["SERVICE_URL"] = request.service_url
 
     # Initialize job tracking
-    started_at = datetime.utcnow()
+    started_at = datetime.now(tz=timezone.utc)
     await set_job(job_id, {
         "job_id": job_id,
         "status": "pending",
@@ -220,7 +218,7 @@ async def cancel_job(job_id: str) -> dict[str, str]:
         await update_job(job_id, {
             "status": "failed",
             "error": "Cancelled by user",
-            "completed_at": datetime.utcnow()
+            "completed_at": datetime.now(tz=timezone.utc)
         })
 
     # Remove from tracking

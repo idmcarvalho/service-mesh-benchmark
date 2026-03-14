@@ -1,7 +1,7 @@
 """eBPF probe control endpoints."""
 
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, status
@@ -12,18 +12,17 @@ from src.api.state import get_all_jobs, set_job, update_job
 
 router = APIRouter(prefix="/ebpf", tags=["eBPF"])
 
+# Path to the compiled eBPF userspace daemon binary
+PROBE_BIN = EBPF_PROBE_DIR / "daemon" / "target" / "release" / "latency-probe"
+
 
 async def run_ebpf_probe(job_id: str, request: eBPFProbeRequest) -> None:
     """Run eBPF latency probe in the background."""
-    probe_path = (
-        EBPF_PROBE_DIR / "daemon" / "target" / "release" / "latency-probe"
-    )
-
-    if not probe_path.exists():
+    if not PROBE_BIN.exists():
         await update_job(job_id, {
             "status": "failed",
             "error": "eBPF probe not built",
-            "completed_at": datetime.utcnow()
+            "completed_at": datetime.now(tz=timezone.utc)
         })
         return
 
@@ -31,13 +30,13 @@ async def run_ebpf_probe(job_id: str, request: eBPFProbeRequest) -> None:
         await update_job(job_id, {"status": "running"})
 
         # Prepare output file
-        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now(tz=timezone.utc).strftime("%Y%m%d_%H%M%S")
         output_file = RESULTS_DIR / f"ebpf_probe_{timestamp}.{request.output_format}"
 
         # Build command
         cmd = [
             "sudo",
-            str(probe_path),
+            str(PROBE_BIN),
             "--duration",
             str(request.duration),
             "--output",
@@ -76,7 +75,7 @@ async def run_ebpf_probe(job_id: str, request: eBPFProbeRequest) -> None:
         })
 
     finally:
-        await update_job(job_id, {"completed_at": datetime.utcnow()})
+        await update_job(job_id, {"completed_at": datetime.now(tz=timezone.utc)})
 
 
 @router.post("/probe/start", response_model=eBPFProbeResponse)
@@ -84,21 +83,17 @@ async def start_ebpf_probe(
     request: eBPFProbeRequest, background_tasks: BackgroundTasks
 ) -> eBPFProbeResponse:
     """Start eBPF latency probe."""
-    probe_path = (
-        EBPF_PROBE_DIR / "daemon" / "target" / "release" / "latency-probe"
-    )
-
-    if not probe_path.exists():
+    if not PROBE_BIN.exists():
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="eBPF probe not built. Run: cd src/probes && cargo build --release",
         )
 
     # Generate job ID
-    job_id = f"ebpf_probe_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}"
+    job_id = f"ebpf_probe_{datetime.now(tz=timezone.utc).strftime('%Y%m%d_%H%M%S')}"
 
     # Initialize job tracking
-    started_at = datetime.utcnow()
+    started_at = datetime.now(tz=timezone.utc)
     await set_job(job_id, {
         "job_id": job_id,
         "status": "pending",
@@ -124,11 +119,7 @@ async def start_ebpf_probe(
 @router.get("/probe/status")
 async def ebpf_probe_status() -> dict[str, Any]:
     """Check eBPF probe availability and status."""
-    probe_path = (
-        EBPF_PROBE_DIR / "daemon" / "target" / "release" / "latency-probe"
-    )
-
-    available = probe_path.exists()
+    available = PROBE_BIN.exists()
     all_jobs = await get_all_jobs()
     running_probes = [
         j
@@ -138,7 +129,7 @@ async def ebpf_probe_status() -> dict[str, Any]:
 
     return {
         "available": available,
-        "probe_path": str(probe_path),
+        "probe_path": str(PROBE_BIN),
         "running_probes": len(running_probes),
         "build_instructions": "Run: cd src/probes && cargo build --release"
         if not available

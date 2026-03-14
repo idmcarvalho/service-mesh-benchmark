@@ -6,7 +6,7 @@ allowing job history to survive API restarts without requiring a database.
 
 import asyncio
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
@@ -108,7 +108,7 @@ class JobPersistence:
         """
         from datetime import timedelta
 
-        cutoff_date = datetime.utcnow() - timedelta(days=days)
+        cutoff_date = datetime.now(tz=timezone.utc) - timedelta(days=days)
         deleted_count = 0
 
         async with self._lock:
@@ -183,36 +183,42 @@ class JobPersistence:
     # Private helper methods
 
     async def _load_jobs_dict(self) -> dict[str, dict[str, Any]]:
-        """Load jobs dictionary from file."""
+        """Load jobs dictionary from file without blocking the event loop."""
         if not self.jobs_file.exists():
             return {}
 
+        loop = asyncio.get_event_loop()
         try:
-            with open(self.jobs_file) as f:
-                return json.load(f)
+            return await loop.run_in_executor(None, self._read_jobs_file)
         except (OSError, json.JSONDecodeError) as e:
             print(f"Warning: Failed to load jobs file: {e}")
-            # Backup corrupted file
             if self.jobs_file.exists():
                 backup_file = self.jobs_file.with_suffix(
-                    f".backup.{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.json"
+                    f".backup.{datetime.now(tz=timezone.utc).strftime('%Y%m%d_%H%M%S')}.json"
                 )
                 self.jobs_file.rename(backup_file)
                 print(f"Corrupted file backed up to: {backup_file}")
             return {}
 
-    async def _save_jobs_dict(self, jobs: dict[str, dict[str, Any]]) -> None:
-        """Save jobs dictionary to file."""
-        try:
-            # Write to temporary file first
-            temp_file = self.jobs_file.with_suffix(".tmp")
-            with open(temp_file, "w") as f:
-                json.dump(jobs, f, indent=2, default=str)
+    def _read_jobs_file(self) -> dict[str, dict[str, Any]]:
+        """Synchronous helper to read jobs file (called via executor)."""
+        with open(self.jobs_file) as f:
+            return json.load(f)
 
-            # Atomic rename
-            temp_file.replace(self.jobs_file)
+    async def _save_jobs_dict(self, jobs: dict[str, dict[str, Any]]) -> None:
+        """Save jobs dictionary to file without blocking the event loop."""
+        loop = asyncio.get_event_loop()
+        try:
+            await loop.run_in_executor(None, self._write_jobs_file, jobs)
         except OSError as e:
             print(f"Error: Failed to save jobs file: {e}")
+
+    def _write_jobs_file(self, jobs: dict[str, dict[str, Any]]) -> None:
+        """Synchronous helper to write jobs file atomically (called via executor)."""
+        temp_file = self.jobs_file.with_suffix(".tmp")
+        with open(temp_file, "w") as f:
+            json.dump(jobs, f, indent=2, default=str)
+        temp_file.replace(self.jobs_file)
 
     def _serialize_job(self, job_data: dict[str, Any]) -> dict[str, Any]:
         """Convert job data to JSON-serializable format."""
