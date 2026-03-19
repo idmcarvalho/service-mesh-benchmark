@@ -8,7 +8,7 @@ license = "MIT"
 keywords = ["kubernetes", "service-mesh", "benchmarking", "istio", "cilium", "linkerd", "ebpf"]
 
 [tool.poetry.dependencies]
-python = "^3.9"
+python = "^3.10"
 # Core dependencies
 httpx = "^0.27.0"
 kubernetes = "^29.0.0"
@@ -21,11 +21,12 @@ numpy = "^1.26.0"
 scipy = "^1.11.0"
 pandas = "^2.1.0"
 # API dependencies
-fastapi = "^0.115.0"
+fastapi = "^0.130.0"
+starlette = "^0.49.1"
 uvicorn = {extras = ["standard"], version = "^0.30.0"}
 pydantic = "^2.5.0"
 pydantic-settings = "^2.1.0"
-python-multipart = "^0.0.9"
+python-multipart = "^0.0.22"
 python-dateutil = "^2.8.2"
 pytz = "^2024.1"
 
