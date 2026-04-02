@@ -272,6 +272,5 @@ jobs:
           image-names: api,ml-workload,health-check
           cut-off: 7 days ago UTC
           keep-at-least: 5
-          account-type: org
-          org-name: USP
+          account-type: personal
           token: ${{ secrets.GITHUB_TOKEN }}

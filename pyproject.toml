@@ -206,6 +206,7 @@ ignore_missing_imports = true
 # ===========================
 [tool.pytest.ini_options]
 minversion = "8.0"
+pythonpath = ["."]
 testpaths = ["src/tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
