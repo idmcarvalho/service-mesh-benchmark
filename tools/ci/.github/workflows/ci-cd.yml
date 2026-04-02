@@ -61,7 +61,7 @@ jobs:
         continue-on-error: true
 
       - name: Run pre-deployment tests (Phase 1)
-        run: poetry run pytest -v -m phase1 --tb=short src/tests/
+        run: PYTHONPATH=. poetry run pytest -v -m phase1 --tb=short src/tests/
 
       - name: Run unit tests with coverage
         run: poetry run pytest src/tests/ --cov=src/api --cov=src/tests --cov-report=xml --cov-report=html
@@ -268,6 +268,7 @@ jobs:
     steps:
       - name: Delete old container images
         uses: snok/container-retention-policy@v2
+        continue-on-error: true
         with:
           image-names: api,ml-workload,health-check
           cut-off: 7 days ago UTC
