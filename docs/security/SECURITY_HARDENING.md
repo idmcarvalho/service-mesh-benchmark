@@ -615,18 +615,19 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
-    - name: Run Trivy vulnerability scanner
-      uses: aquasecurity/trivy-action@master
+    - name: Run Grype vulnerability scanner
+      uses: anchore/scan-action@v6
+      id: grype-scan
       with:
-        scan-type: 'fs'
-        scan-ref: '.'
-        format: 'sarif'
-        output: 'trivy-results.sarif'
+        path: '.'
+        fail-build: false
+        severity-cutoff: medium
+        output-format: sarif
 
-    - name: Upload Trivy results to GitHub Security
-      uses: github/codeql-action/upload-sarif@v2
+    - name: Upload Grype results to GitHub Security
+      uses: github/codeql-action/upload-sarif@v3
       with:
-        sarif_file: 'trivy-results.sarif'
+        sarif_file: ${{ steps.grype-scan.outputs.sarif }}
 
     - name: Run Checkov
       uses: bridgecrewio/checkov-action@master

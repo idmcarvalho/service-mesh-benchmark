@@ -204,29 +204,28 @@ jobs:
             safety-*.json
             safety-*.txt
 
-  # Scan infrastructure code with Trivy
-  trivy-scan:
-    name: Trivy Security Scan
+  # Scan infrastructure code with Grype
+  grype-scan:
+    name: Grype Security Scan
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Run Trivy filesystem scan
-        uses: aquasecurity/trivy-action@master
+      - name: Run Grype filesystem scan
+        uses: anchore/scan-action@v6
+        id: grype-scan
         with:
-          scan-type: 'fs'
-          scan-ref: '.'
-          format: 'sarif'
-          output: 'trivy-results.sarif'
-          severity: 'MEDIUM,HIGH,CRITICAL'
-          ignore-unfixed: true
+          path: '.'
+          fail-build: false
+          severity-cutoff: medium
+          output-format: sarif
 
-      - name: Upload Trivy results to GitHub Security
+      - name: Upload Grype results to GitHub Security
         uses: github/codeql-action/upload-sarif@v3
         if: always()
         with:
-          sarif_file: 'trivy-results.sarif'
+          sarif_file: ${{ steps.grype-scan.outputs.sarif }}
 
   # Scan Terraform with tfsec
   terraform-security:
@@ -307,31 +306,37 @@ jobs:
             docker build -t health-check:test -f docker/health-check/Dockerfile docker/health-check/
           fi
 
-      - name: Scan ML workload image with Trivy
-        uses: aquasecurity/trivy-action@master
+      - name: Scan ML workload image with Grype
+        uses: anchore/scan-action@v6
+        id: grype-ml-workload
         if: hashFiles('docker/ml-workload/Dockerfile') != ''
         with:
-          image-ref: 'ml-workload:test'
-          format: 'sarif'
-          output: 'trivy-ml-workload.sarif'
-          severity: 'HIGH,CRITICAL'
+          image: 'ml-workload:test'
+          fail-build: false
+          severity-cutoff: high
+          output-format: sarif
 
-      - name: Scan health-check image with Trivy
-        uses: aquasecurity/trivy-action@master
+      - name: Upload ML workload scan results
+        uses: github/codeql-action/upload-sarif@v3
+        if: hashFiles('docker/ml-workload/Dockerfile') != ''
+        with:
+          sarif_file: ${{ steps.grype-ml-workload.outputs.sarif }}
+
+      - name: Scan health-check image with Grype
+        uses: anchore/scan-action@v6
+        id: grype-health-check
         if: hashFiles('docker/health-check/Dockerfile') != ''
         with:
-          image-ref: 'health-check:test'
-          format: 'sarif'
-          output: 'trivy-health-check.sarif'
-          severity: 'HIGH,CRITICAL'
+          image: 'health-check:test'
+          fail-build: false
+          severity-cutoff: high
+          output-format: sarif
 
-      - name: Upload Docker scan results
+      - name: Upload health-check scan results
         uses: github/codeql-action/upload-sarif@v3
-        if: always()
+        if: hashFiles('docker/health-check/Dockerfile') != ''
         with:
-          sarif_file: |
-            trivy-ml-workload.sarif
-            trivy-health-check.sarif
+          sarif_file: ${{ steps.grype-health-check.outputs.sarif }}
 
   # Secret scanning
   secret-scan:
@@ -352,7 +357,7 @@ jobs:
   security-summary:
     name: Security Summary
     runs-on: ubuntu-latest
-    needs: [python-security, trivy-scan, terraform-security, shellcheck]
+    needs: [python-security, grype-scan, terraform-security, shellcheck]
     if: always()
     steps:
       - name: Download all artifacts

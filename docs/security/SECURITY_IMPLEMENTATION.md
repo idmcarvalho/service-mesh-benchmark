@@ -219,7 +219,7 @@ Added comprehensive security contexts to all pods:
    - Artifact upload for review
 
 3. **Infrastructure Scanning**
-   - Trivy filesystem scan
+   - Grype filesystem scan
    - tfsec Terraform security
    - Checkov Terraform compliance
 
@@ -227,8 +227,8 @@ Added comprehensive security contexts to all pods:
    - ShellCheck for all benchmark scripts
 
 5. **Docker Image Scanning**
-   - Trivy scan for ML workload image
-   - Trivy scan for health-check image
+   - Grype scan for ML workload image
+   - Grype scan for health-check image
 
 6. **Secret Detection**
    - Gitleaks for committed secrets
