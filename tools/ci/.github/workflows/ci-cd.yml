@@ -61,9 +61,7 @@ jobs:
         continue-on-error: true
 
       - name: Run pre-deployment tests (Phase 1)
-        run: |
-          cd src/tests
-          poetry run pytest -v -m phase1 --tb=short
+        run: poetry run pytest -v -m phase1 --tb=short src/tests/
 
       - name: Run unit tests with coverage
         run: poetry run pytest src/tests/ --cov=src/api --cov=src/tests --cov-report=xml --cov-report=html
@@ -275,4 +273,5 @@ jobs:
           cut-off: 7 days ago UTC
           keep-at-least: 5
           account-type: org
+          org-name: USP
           token: ${{ secrets.GITHUB_TOKEN }}
