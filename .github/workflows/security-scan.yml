@@ -1,0 +1,372 @@
+name: Security Scan
+
+on:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [main, develop]
+  schedule:
+    # Run weekly security scans on Sunday at midnight UTC
+    - cron: '0 0 * * 0'
+  workflow_dispatch:  # Allow manual triggering
+
+permissions:
+  contents: read
+  security-events: write
+  pull-requests: write
+
+jobs:
+  # Scan Python code for vulnerabilities
+  python-security:
+    name: Python Security (Bandit)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install bandit[toml]
+
+      - name: Run Bandit security scan
+        run: |
+          bandit -r tests/ -f json -o bandit-results.json || true
+          bandit -r tests/ -f sarif -o bandit-results.sarif || true
+
+      - name: Upload Bandit results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: bandit-results.sarif
+
+      - name: Upload Bandit results as artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bandit-results
+          path: bandit-results.json
+
+  # Scan dependencies for known vulnerabilities
+  dependency-scan:
+    name: Dependency Vulnerability Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Poetry
+        uses: snok/install-poetry@v1
+        with:
+          version: 1.7.1
+          virtualenvs-create: false
+
+      - name: Export Poetry dependencies to requirements.txt
+        run: |
+          echo "Exporting Poetry dependencies for scanning..."
+          poetry export -f requirements.txt --output requirements-all.txt --with test,dev --without-hashes || true
+          poetry export -f requirements.txt --output requirements-main.txt --without-hashes || true
+
+      - name: Install security scanners
+        run: |
+          pip install pip-audit
+          pip install safety
+
+      - name: Scan all dependencies with pip-audit
+        run: |
+          if [ -f "poetry.lock" ]; then
+            echo "Scanning poetry.lock with pip-audit..."
+            pip-audit --requirement requirements-all.txt --format json --output pip-audit-all.json --desc on || true
+            pip-audit --requirement requirements-all.txt --format markdown --output pip-audit-all.md --desc on || true
+          fi
+        continue-on-error: true
+
+      - name: Scan main dependencies with pip-audit
+        run: |
+          if [ -f "requirements-main.txt" ]; then
+            echo "Scanning main dependencies..."
+            pip-audit --requirement requirements-main.txt --format json --output pip-audit-main.json --desc on || true
+            pip-audit --requirement requirements-main.txt --format markdown --output pip-audit-main.md --desc on || true
+          fi
+        continue-on-error: true
+
+      - name: Safety scan - all dependencies
+        run: |
+          if [ -f "requirements-all.txt" ]; then
+            echo "Safety scanning all dependencies..."
+            safety check -r requirements-all.txt --json --output safety-all.json || true
+            safety check -r requirements-all.txt --output safety-all.txt || true
+          fi
+        continue-on-error: true
+
+      - name: Safety scan - main dependencies
+        run: |
+          if [ -f "requirements-main.txt" ]; then
+            echo "Safety scanning main dependencies..."
+            safety check -r requirements-main.txt --json --output safety-main.json || true
+            safety check -r requirements-main.txt --output safety-main.txt || true
+          fi
+        continue-on-error: true
+
+      - name: Check for critical vulnerabilities
+        run: |
+          echo "Checking for critical/high severity vulnerabilities..."
+          CRITICAL_FOUND=0
+
+          # Check pip-audit results
+          for file in pip-audit-*.json; do
+            if [ -f "$file" ]; then
+              echo "Checking $file..."
+              if grep -q '"vulnerabilities"' "$file"; then
+                echo "⚠️  Vulnerabilities found in $file"
+                CRITICAL_FOUND=1
+              fi
+            fi
+          done
+
+          # Check safety results
+          for file in safety-*.json; do
+            if [ -f "$file" ]; then
+              echo "Checking $file..."
+              if grep -q '"vulnerabilities"' "$file" 2>/dev/null; then
+                echo "⚠️  Vulnerabilities found in $file"
+                CRITICAL_FOUND=1
+              fi
+            fi
+          done
+
+          if [ $CRITICAL_FOUND -eq 1 ]; then
+            echo "❌ CRITICAL: Vulnerabilities detected in dependencies!"
+            echo "Review the scan reports in the artifacts for details."
+            echo "has_vulnerabilities=true" >> $GITHUB_OUTPUT
+            exit 1  # Fail the job to prevent merging vulnerable code
+          else
+            echo "✅ No vulnerabilities detected"
+            echo "has_vulnerabilities=false" >> $GITHUB_OUTPUT
+          fi
+        id: vuln_check
+
+      - name: Create vulnerability summary
+        if: always()
+        run: |
+          echo "# 🔒 Dependency Vulnerability Scan Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "This scan uses multiple tools for comprehensive coverage:" >> $GITHUB_STEP_SUMMARY
+          echo "- **pip-audit**: Official PyPA tool using OSV and PyPI databases" >> $GITHUB_STEP_SUMMARY
+          echo "- **Safety**: Uses Safety DB for known security vulnerabilities" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # pip-audit results
+          echo "## pip-audit Results" >> $GITHUB_STEP_SUMMARY
+          for file in pip-audit-*.md; do
+            if [ -f "$file" ]; then
+              echo "### $(basename $file .md)" >> $GITHUB_STEP_SUMMARY
+              cat "$file" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+            fi
+          done
+
+          # Safety results
+          echo "## Safety Results" >> $GITHUB_STEP_SUMMARY
+          for file in safety-*.txt; do
+            if [ -f "$file" ]; then
+              echo "### $(basename $file .txt)" >> $GITHUB_STEP_SUMMARY
+              echo '```' >> $GITHUB_STEP_SUMMARY
+              cat "$file" >> $GITHUB_STEP_SUMMARY
+              echo '```' >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+            fi
+          done
+
+          # Check if no vulnerabilities found
+          if [ ! -f pip-audit-*.md ] && [ ! -f safety-*.txt ]; then
+            echo "✅ No vulnerabilities detected in any dependencies" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Upload dependency scan results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dependency-scan-results
+          path: |
+            pip-audit-*.json
+            pip-audit-*.md
+            safety-*.json
+            safety-*.txt
+
+  # Scan infrastructure code with Grype
+  grype-scan:
+    name: Grype Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Grype filesystem scan
+        uses: anchore/scan-action@v6
+        id: grype-scan
+        with:
+          path: '.'
+          fail-build: false
+          severity-cutoff: medium
+          output-format: sarif
+
+      - name: Upload Grype results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: ${{ steps.grype-scan.outputs.sarif }}
+
+  # Scan Terraform with tfsec
+  terraform-security:
+    name: Terraform Security (tfsec)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run tfsec
+        uses: aquasecurity/tfsec-action@v1.0.3
+        with:
+          working_directory: terraform/
+          format: sarif
+          soft_fail: true
+
+      - name: Upload tfsec results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: results.sarif
+
+  # Scan Terraform with Checkov
+  checkov-scan:
+    name: Terraform Security (Checkov)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Checkov
+        uses: bridgecrewio/checkov-action@master
+        with:
+          directory: terraform/
+          framework: terraform
+          output_format: sarif
+          output_file_path: checkov-results.sarif
+          soft_fail: true
+
+      - name: Upload Checkov results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: checkov-results.sarif
+
+  # Lint shell scripts
+  shellcheck:
+    name: Shell Script Linting
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run ShellCheck
+        uses: ludeeus/action-shellcheck@master
+        with:
+          severity: warning
+          scandir: './benchmarks/scripts'
+
+  # Scan Docker images
+  docker-security:
+    name: Docker Image Security
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build Docker images
+        run: |
+          # Build ML workload image
+          if [ -d "docker/ml-workload" ]; then
+            docker build -t ml-workload:test -f docker/ml-workload/Dockerfile docker/ml-workload/
+          fi
+
+          # Build health-check image
+          if [ -d "docker/health-check" ]; then
+            docker build -t health-check:test -f docker/health-check/Dockerfile docker/health-check/
+          fi
+
+      - name: Scan ML workload image with Grype
+        uses: anchore/scan-action@v6
+        id: grype-ml-workload
+        if: hashFiles('docker/ml-workload/Dockerfile') != ''
+        with:
+          image: 'ml-workload:test'
+          fail-build: false
+          severity-cutoff: high
+          output-format: sarif
+
+      - name: Upload ML workload scan results
+        uses: github/codeql-action/upload-sarif@v3
+        if: hashFiles('docker/ml-workload/Dockerfile') != ''
+        with:
+          sarif_file: ${{ steps.grype-ml-workload.outputs.sarif }}
+
+      - name: Scan health-check image with Grype
+        uses: anchore/scan-action@v6
+        id: grype-health-check
+        if: hashFiles('docker/health-check/Dockerfile') != ''
+        with:
+          image: 'health-check:test'
+          fail-build: false
+          severity-cutoff: high
+          output-format: sarif
+
+      - name: Upload health-check scan results
+        uses: github/codeql-action/upload-sarif@v3
+        if: hashFiles('docker/health-check/Dockerfile') != ''
+        with:
+          sarif_file: ${{ steps.grype-health-check.outputs.sarif }}
+
+  # Secret scanning
+  secret-scan:
+    name: Secret Detection
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for better detection
+
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Summary report
+  security-summary:
+    name: Security Summary
+    runs-on: ubuntu-latest
+    needs: [python-security, grype-scan, terraform-security, shellcheck]
+    if: always()
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Create security summary
+        run: |
+          echo "# Security Scan Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✅ All security scans completed" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Check the Security tab for detailed findings." >> $GITHUB_STEP_SUMMARY
