@@ -140,7 +140,7 @@ The Service Mesh Benchmark project has been **fully upgraded to production-ready
 - GitHub Actions workflow with 6 jobs:
   1. **Code Quality & Tests** - Ruff, Black, MyPy, pytest
   2. **Build Docker Images** - Multi-platform (amd64/arm64)
-  3. **Security Scanning** - Trivy vulnerability scanning
+  3. **Security Scanning** - Grype vulnerability scanning
   4. **Deploy to Staging** - Automated staging deployment
   5. **Deploy to Production** - Blue-green deployment with rollback
   6. **Cleanup** - Image retention management

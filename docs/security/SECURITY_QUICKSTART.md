@@ -96,8 +96,8 @@ tfsec .
 checkov -d .
 
 # Docker image scanning
-trivy image ml-workload:v1.0.0
-trivy image health-check:v1.0.0
+grype ml-workload:v1.0.0
+grype health-check:v1.0.0
 
 # Secret detection
 detect-secrets scan

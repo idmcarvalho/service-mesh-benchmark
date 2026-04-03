@@ -1,0 +1,237 @@
+name: Service Mesh Benchmark Tests
+
+"on":
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      mesh_type:
+        description: Service mesh type to test
+        required: true
+        default: baseline
+        type: choice
+        options:
+          - baseline
+          - istio
+          - cilium
+          - linkerd
+
+jobs:
+  # Code Quality Checks - Run first, fail fast
+  code-quality:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install code quality tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install ruff black mypy pydantic
+
+      - name: Run Ruff linter
+        run: ruff check . --config=pyproject.toml
+
+      - name: Run Black formatter check
+        run: black . --check --config=pyproject.toml
+
+      - name: Run MyPy type checker
+        run: mypy tests/ generate-report.py --config-file=pyproject.toml
+        continue-on-error: true
+
+  # Lint and validate configuration files
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "~1.9"
+
+      - name: Validate Terraform
+        run: |
+          cd terraform/oracle-cloud
+          terraform fmt -check -recursive
+          terraform init -upgrade
+          terraform validate
+
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v3
+
+      - name: Validate Kubernetes Manifests
+        run: |
+          for file in kubernetes/workloads/*.yaml; do
+            echo "Validating $file"
+            kubectl apply --dry-run=client -f "$file"
+          done
+
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+
+      - name: Run shellcheck on benchmark scripts
+        run: |
+          find benchmarks/scripts -name "*.sh" -type f -exec shellcheck {} \;
+
+      - name: Run shellcheck on eBPF scripts
+        run: |
+          find ebpf-probes -name "*.sh" -type f -exec shellcheck {} \; || echo "No eBPF scripts found or errors present"
+
+      - name: Install yamllint
+        run: pip install yamllint
+
+      - name: Run yamllint
+        run: yamllint -c .yamllint.yaml . || echo "YAML linting completed with warnings"
+
+  # Phase 1: Pre-deployment tests (fast, no infrastructure needed)
+  pre-deployment:
+    runs-on: ubuntu-latest
+    needs: [code-quality, lint]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "~1.9"
+
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v3
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r tests/requirements.txt
+          pip install pydantic ruff black mypy
+
+      - name: Run Phase 1 Tests
+        run: |
+          cd tests
+          pytest -v -m phase1 \
+            --html=../benchmarks/results/phase1_report.html \
+            --self-contained-html \
+            --cov=. \
+            --cov-report=html \
+            --cov-report=xml \
+            --cov-report=term-missing
+
+      - name: Upload Coverage to Codecov
+        if: always()
+        uses: codecov/codecov-action@v4
+        with:
+          file: tests/coverage.xml
+          flags: phase1
+          name: phase1-coverage
+          fail_ci_if_error: false
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+      - name: Upload Phase 1 Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase1-results
+          path: |
+            benchmarks/results/
+            tests/htmlcov/
+            tests/coverage.xml
+            tests/coverage.json
+
+  # Full integration tests (requires infrastructure)
+  integration:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+    needs: [pre-deployment, lint, code-quality]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r tests/requirements.txt
+          pip install pydantic ruff black mypy
+
+      - name: Configure cloud credentials
+        run: |
+          echo "Configure OCI credentials here"
+          echo "⚠️  This requires OCI_* secrets to be configured"
+
+      - name: Run Integration Tests
+        run: |
+          cd tests
+          python run_tests.py \
+            --phase=all \
+            --mesh-type=${{ github.event.inputs.mesh_type || 'baseline' }} \
+            --test-duration=60 \
+            --concurrent-connections=100
+
+      - name: Generate Coverage Report
+        if: always()
+        run: |
+          cd tests
+          coverage combine || true
+          coverage report
+          coverage html
+          coverage xml
+          coverage json
+
+      - name: Upload Coverage to Codecov
+        if: always()
+        uses: codecov/codecov-action@v4
+        with:
+          file: tests/coverage.xml
+          flags: integration,${{ github.event.inputs.mesh_type }}
+          name: integration-coverage
+          fail_ci_if_error: false
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+      - name: Upload Test Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-results-${{ github.event.inputs.mesh_type || 'baseline' }}
+          path: |
+            benchmarks/results/
+            tests/*.html
+            tests/htmlcov/
+            tests/coverage.xml
+            tests/coverage.json
+
+      - name: Comment Coverage on PR
+        if: github.event_name == 'pull_request'
+        uses: py-cov-action/python-coverage-comment-action@v3
+        with:
+          GITHUB_TOKEN: ${{ github.token }}
+          MINIMUM_GREEN: 70
+          MINIMUM_ORANGE: 50

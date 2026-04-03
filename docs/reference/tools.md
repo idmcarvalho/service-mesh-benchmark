@@ -87,7 +87,7 @@ Scheduled daily runs:
 ### Security Scan Pipeline (`security-scan.yml`)
 Runs on every push:
 1. Scan Python code with bandit
-2. Scan Docker images with trivy
+2. Scan Docker images with grype
 3. Check dependencies for vulnerabilities
 4. Generate security reports
 
