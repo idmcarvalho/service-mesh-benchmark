@@ -1,0 +1,115 @@
+# Cilium L7 (Per-Node Envoy) HTTP/2 (h2c) Service for 4-Way Benchmark
+# Forces Cilium's per-node Envoy into the datapath via CiliumNetworkPolicy
+# Traffic path: client -> eBPF -> per-node Envoy (L7 h2c inspect) -> backend
+# NOTE: Cilium L7 Envoy supports HTTP/2 — this tests whether h2c triggers the L7 path
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cilium-l7-h2c
+  labels:
+    benchmark: h2c
+    workload-type: http2
+    istio-injection: disabled
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: http-server
+  namespace: cilium-l7-h2c
+  labels:
+    app: http-server
+    version: v1
+    benchmark: cilium-l7
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: http-server
+  template:
+    metadata:
+      labels:
+        app: http-server
+        version: v1
+        benchmark: cilium-l7
+      annotations:
+        sidecar.istio.io/inject: "false"
+    spec:
+      nodeSelector:
+        benchmark-role: server
+      containers:
+      - name: fortio
+        image: fortio/fortio:latest
+        args: ["server", "-http-port", "8080"]
+        ports:
+        - containerPort: 8080
+          name: h2c
+          protocol: TCP
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi
+        livenessProbe:
+          httpGet:
+            path: /fortio/
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /fortio/
+            port: 8080
+          initialDelaySeconds: 3
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+      terminationGracePeriodSeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: http-server
+  namespace: cilium-l7-h2c
+  labels:
+    app: http-server
+    benchmark: cilium-l7
+spec:
+  type: ClusterIP
+  selector:
+    app: http-server
+  ports:
+  - name: h2c
+    port: 8080
+    targetPort: 8080
+    protocol: TCP
+    appProtocol: h2c
+---
+# CiliumNetworkPolicy with L7 HTTP rules
+# Forces Cilium to redirect traffic through its per-node Envoy proxy for L7 inspection
+# Cilium's Envoy supports HTTP/2 — if h2c traffic is correctly identified, L7 rules apply
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: http-server-l7
+  namespace: cilium-l7-h2c
+spec:
+  endpointSelector:
+    matchLabels:
+      app: http-server
+  ingress:
+  - fromEndpoints:
+    - {}
+    toPorts:
+    - ports:
+      - port: "8080"
+        protocol: TCP
+      rules:
+        http:
+        - method: GET
+        - method: POST
+        - method: HEAD

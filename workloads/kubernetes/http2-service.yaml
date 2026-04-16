@@ -1,0 +1,141 @@
+# HTTP/2 (h2c) Service for 4-Way Benchmark (Istio Sidecar Mode)
+# This workload runs WITH Istio sidecar injection enabled
+# Traffic path: client [sidecar] -> service -> [sidecar] backend fortio server
+# appProtocol: h2c signals Istio to use HTTP/2 for the backend connection
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: h2c-benchmark
+  labels:
+    benchmark: h2c
+    workload-type: http2
+    istio-injection: enabled
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: http-server
+  namespace: h2c-benchmark
+  labels:
+    app: http-server
+    version: v1
+    benchmark: h2c
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: http-server
+  template:
+    metadata:
+      labels:
+        app: http-server
+        version: v1
+        benchmark: h2c
+      annotations:
+        sidecar.istio.io/inject: "true"
+        proxy.istio.io/config: |
+          holdApplicationUntilProxyStarts: true
+    spec:
+      nodeSelector:
+        benchmark-role: server
+      containers:
+      - name: fortio
+        image: fortio/fortio:latest
+        args: ["server", "-http-port", "8080"]
+        ports:
+        - containerPort: 8080
+          name: h2c
+          protocol: TCP
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi
+        livenessProbe:
+          httpGet:
+            path: /fortio/
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /fortio/
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+      terminationGracePeriodSeconds: 30
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: http-server
+  namespace: h2c-benchmark
+  labels:
+    app: http-server
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: http-server
+  namespace: h2c-benchmark
+  labels:
+    app: http-server
+    benchmark: h2c
+  annotations:
+    # Signal Istio that the backend speaks h2c so the sidecar uses HTTP/2 upstream
+    traffic.istio.io/appProtocol: h2
+spec:
+  type: ClusterIP
+  selector:
+    app: http-server
+  ports:
+  - name: h2c
+    port: 8080
+    targetPort: 8080
+    protocol: TCP
+    appProtocol: h2c
+---
+# Istio DestinationRule: disable h2UpgradePolicy (we enforce h2c explicitly)
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: http-server
+  namespace: h2c-benchmark
+spec:
+  host: http-server.h2c-benchmark.svc.cluster.local
+  trafficPolicy:
+    connectionPool:
+      tcp:
+        maxConnections: 1000
+      http:
+        h2UpgradePolicy: DO_NOT_UPGRADE
+        http2MaxRequests: 1000
+    loadBalancer:
+      simple: LEAST_REQUEST
+---
+# Istio VirtualService for routing
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: http-server
+  namespace: h2c-benchmark
+spec:
+  hosts:
+  - http-server
+  http:
+  - route:
+    - destination:
+        host: http-server
+        port:
+          number: 8080
+    timeout: 30s
+    retries:
+      attempts: 3
+      perTryTimeout: 10s
