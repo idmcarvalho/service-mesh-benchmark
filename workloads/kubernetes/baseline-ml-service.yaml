@@ -1,0 +1,173 @@
+# Baseline ML Inference Service for 4-Way Benchmark
+# Same inference server as ml-inference-service.yaml but WITHOUT any service mesh.
+# Establishes the no-overhead baseline for ML inference HTTP traffic.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: baseline-ml
+  labels:
+    benchmark: ml-inference
+    workload-type: ml_inference
+    istio-injection: disabled
+    linkerd.io/inject: disabled
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ml-server-script
+  namespace: baseline-ml
+data:
+  server.py: |
+    #!/usr/bin/env python3
+    import json, os, time, http.server
+    import numpy as np
+    from sklearn.ensemble import RandomForestClassifier
+    from sklearn.datasets import make_classification
+
+    N_FEATURES = int(os.environ.get("N_FEATURES", "20"))
+    N_ESTIMATORS = int(os.environ.get("N_ESTIMATORS", "100"))
+    print(f"Fitting RandomForest (estimators={N_ESTIMATORS}, features={N_FEATURES})...")
+    X, y = make_classification(n_samples=2000, n_features=N_FEATURES,
+                               n_informative=15, n_redundant=5, random_state=42)
+    MODEL = RandomForestClassifier(n_estimators=N_ESTIMATORS, random_state=42)
+    MODEL.fit(X, y)
+    print("Model ready.")
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def log_message(self, fmt, *args): pass
+        def do_GET(self):
+            if self.path in ("/health", "/fortio/"):
+                self.send_response(200); self.end_headers(); self.wfile.write(b"OK")
+            else:
+                self.send_response(404); self.end_headers()
+        def do_POST(self):
+            if self.path != "/predict":
+                self.send_response(404); self.end_headers(); return
+            length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(length)
+            t0 = time.perf_counter()
+            try:
+                data = json.loads(body)
+                features = np.array(data["features"], dtype=np.float32)
+                if features.ndim == 1: features = features.reshape(1, -1)
+                predictions = MODEL.predict(features).tolist()
+                resp = json.dumps({"predictions": predictions, "batch_size": len(predictions),
+                    "inference_time_ms": round((time.perf_counter()-t0)*1000, 3),
+                    "hostname": os.environ.get("HOSTNAME","unknown")}).encode()
+                self.send_response(200)
+                self.send_header("Content-Type","application/json")
+                self.send_header("Content-Length",str(len(resp)))
+                self.end_headers(); self.wfile.write(resp)
+            except Exception as e:
+                err = json.dumps({"error":str(e)}).encode()
+                self.send_response(400)
+                self.send_header("Content-Type","application/json")
+                self.send_header("Content-Length",str(len(err)))
+                self.end_headers(); self.wfile.write(err)
+
+    http.server.HTTPServer(("0.0.0.0", 8080), Handler).serve_forever()
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: http-server
+  namespace: baseline-ml
+  labels:
+    app: http-server
+    version: v1
+    benchmark: baseline
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: http-server
+  template:
+    metadata:
+      labels:
+        app: http-server
+        version: v1
+        benchmark: baseline
+      annotations:
+        sidecar.istio.io/inject: "false"
+        linkerd.io/inject: disabled
+    spec:
+      nodeSelector:
+        benchmark-role: server
+      initContainers:
+      - name: install-deps
+        image: python:3.11-slim
+        command: ["pip", "install", "--quiet", "--target=/deps", "scikit-learn", "numpy"]
+        volumeMounts:
+        - name: deps
+          mountPath: /deps
+      containers:
+      - name: inference-server
+        image: python:3.11-slim
+        command: ["python3", "/app/server.py"]
+        env:
+        - name: PYTHONPATH
+          value: "/deps"
+        - name: N_FEATURES
+          value: "20"
+        - name: N_ESTIMATORS
+          value: "100"
+        ports:
+        - containerPort: 8080
+          name: http
+          protocol: TCP
+        resources:
+          requests:
+            cpu: 200m
+            memory: 256Mi
+          limits:
+            cpu: 1000m
+            memory: 512Mi
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 60
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 45
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        volumeMounts:
+        - name: app-script
+          mountPath: /app
+        - name: deps
+          mountPath: /deps
+      volumes:
+      - name: app-script
+        configMap:
+          name: ml-server-script
+          defaultMode: 0755
+      - name: deps
+        emptyDir: {}
+      terminationGracePeriodSeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: http-server
+  namespace: baseline-ml
+  labels:
+    app: http-server
+    benchmark: baseline
+spec:
+  type: ClusterIP
+  selector:
+    app: http-server
+  ports:
+  - name: http
+    port: 8080
+    targetPort: 8080
+    protocol: TCP
+    appProtocol: http
