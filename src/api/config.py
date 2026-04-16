@@ -12,9 +12,11 @@ EBPF_PROBE_DIR = paths.ebpf_latency
 # Benchmark script mapping
 BENCHMARK_SCRIPTS = {
     "http": "http-load-test.sh",
+    "http2": "h2c-load-test.sh",
     "grpc": "grpc-test.sh",
     "websocket": "websocket-test.sh",
     "ml": "ml-workload.sh",
+    "ml_inference": "ml-load-test.sh",
 }
 
 # Service mesh component mappings
