@@ -1,5 +1,7 @@
-# gRPC Service for Phase 4 Service Mesh Testing
-# This workload runs WITH service mesh sidecar injection enabled
+# gRPC Service for 4-Way Benchmark (Istio Sidecar Mode)
+# This workload runs WITH Istio sidecar injection enabled
+# Uses Fortio's built-in gRPC server/client (consistent toolchain with HTTP benchmarks)
+# Traffic path: client [sidecar] -> service:8079 -> [sidecar] backend fortio server
 ---
 apiVersion: v1
 kind: Namespace
@@ -8,145 +10,117 @@ metadata:
   labels:
     benchmark: mesh
     workload-type: grpc
-    # Enable sidecar injection for Istio
     istio-injection: enabled
-    # Enable sidecar injection for Linkerd
-    linkerd.io/inject: enabled
-  annotations:
-    # Consul Connect injection
-    consul.hashicorp.com/connect-inject: "true"
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: grpc-server
+  name: http-server
   namespace: grpc-benchmark
   labels:
-    app: grpc-server
+    app: http-server
     version: v1
     benchmark: mesh
 spec:
-  replicas: 3
+  replicas: 1
   selector:
     matchLabels:
-      app: grpc-server
+      app: http-server
   template:
     metadata:
       labels:
-        app: grpc-server
+        app: http-server
         version: v1
         benchmark: mesh
       annotations:
-        # Istio sidecar injection
         sidecar.istio.io/inject: "true"
-        # Linkerd injection
-        linkerd.io/inject: enabled
-        # Consul Connect injection
-        consul.hashicorp.com/connect-inject: "true"
-        # Prometheus scraping
-        prometheus.io/scrape: "true"
-        prometheus.io/port: "9000"
+        proxy.istio.io/config: |
+          holdApplicationUntilProxyStarts: true
     spec:
+      nodeSelector:
+        benchmark-role: server
       containers:
-      - name: grpcbin
-        # grpcbin provides a fully-featured gRPC test server with reflection
-        image: moul/grpcbin:latest
+      - name: fortio
+        image: fortio/fortio:latest
+        # Fortio serves both gRPC (8079) and HTTP (8080) from a single process
+        args: ["server", "-grpc-port", "8079", "-http-port", "8080"]
         ports:
-        - containerPort: 9000
+        - containerPort: 8079
           name: grpc
           protocol: TCP
-        - containerPort: 9001
-          name: grpc-tls
+        - containerPort: 8080
+          name: http
           protocol: TCP
-        env:
-        - name: GRPC_VERBOSITY
-          value: "INFO"
         resources:
           requests:
-            cpu: 100m
-            memory: 128Mi
+            cpu: 50m
+            memory: 64Mi
           limits:
             cpu: 500m
             memory: 256Mi
         livenessProbe:
-          tcpSocket:
-            port: 9000
+          httpGet:
+            path: /fortio/
+            port: 8080
           initialDelaySeconds: 10
           periodSeconds: 10
           timeoutSeconds: 5
           failureThreshold: 3
         readinessProbe:
-          tcpSocket:
-            port: 9000
-          initialDelaySeconds: 5
+          httpGet:
+            path: /fortio/
+            port: 8080
+          initialDelaySeconds: 10
           periodSeconds: 5
           timeoutSeconds: 3
           failureThreshold: 3
       terminationGracePeriodSeconds: 30
 ---
 apiVersion: v1
-kind: Service
+kind: ServiceAccount
 metadata:
-  name: grpc-server
+  name: http-server
   namespace: grpc-benchmark
   labels:
-    app: grpc-server
+    app: http-server
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: http-server
+  namespace: grpc-benchmark
+  labels:
+    app: http-server
     benchmark: mesh
-  annotations:
-    # Consul Connect service registration
-    consul.hashicorp.com/service-name: "grpc-server"
 spec:
   type: ClusterIP
   selector:
-    app: grpc-server
+    app: http-server
   ports:
   - name: grpc
-    port: 9000
-    targetPort: 9000
-    protocol: TCP
-    # App protocol annotation for service mesh routing
-    appProtocol: grpc
-  - name: grpc-tls
-    port: 9001
-    targetPort: 9001
+    port: 8079
+    targetPort: 8079
     protocol: TCP
     appProtocol: grpc
----
-# Service Account for mesh identity
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: grpc-server
-  namespace: grpc-benchmark
-  labels:
-    app: grpc-server
----
-apiVersion: policy/v1
-kind: PodDisruptionBudget
-metadata:
-  name: grpc-server-pdb
-  namespace: grpc-benchmark
-spec:
-  minAvailable: 1
-  selector:
-    matchLabels:
-      app: grpc-server
+  - name: http
+    port: 8080
+    targetPort: 8080
+    protocol: TCP
 ---
 # Istio DestinationRule for gRPC traffic policy
 apiVersion: networking.istio.io/v1beta1
 kind: DestinationRule
 metadata:
-  name: grpc-server
+  name: http-server
   namespace: grpc-benchmark
 spec:
-  host: grpc-server.grpc-benchmark.svc.cluster.local
+  host: http-server.grpc-benchmark.svc.cluster.local
   trafficPolicy:
     connectionPool:
       tcp:
         maxConnections: 1000
       http:
         h2UpgradePolicy: UPGRADE
-        http1MaxPendingRequests: 1000
         http2MaxRequests: 1000
     loadBalancer:
       simple: LEAST_REQUEST
@@ -155,19 +129,17 @@ spec:
 apiVersion: networking.istio.io/v1beta1
 kind: VirtualService
 metadata:
-  name: grpc-server
+  name: http-server
   namespace: grpc-benchmark
 spec:
   hosts:
-  - grpc-server
+  - http-server
   http:
-  - match:
-    - port: 9000
-    route:
+  - route:
     - destination:
-        host: grpc-server
+        host: http-server
         port:
-          number: 9000
+          number: 8079
     timeout: 30s
     retries:
       attempts: 3

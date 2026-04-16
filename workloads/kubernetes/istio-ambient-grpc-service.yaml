@@ -1,26 +1,27 @@
-# Baseline gRPC Service for 4-Way Benchmark
-# This workload runs WITHOUT any service mesh to establish gRPC performance baselines
-# Uses Fortio's built-in gRPC server (consistent toolchain with HTTP benchmarks)
+# Istio Ambient Mode gRPC Service for 4-Way Benchmark
+# This workload runs under Istio Ambient Mode (ztunnel L4, no sidecar)
+# Traffic path: client [ztunnel] -> service:8079 -> [ztunnel] backend fortio server
+# ztunnel handles mTLS at L4; gRPC frames pass through to the application unchanged
 ---
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: baseline-grpc
+  name: istio-ambient-grpc
   labels:
-    benchmark: baseline
+    benchmark: ambient
     workload-type: grpc
+    istio.io/dataplane-mode: ambient
     istio-injection: disabled
-    linkerd.io/inject: disabled
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: http-server
-  namespace: baseline-grpc
+  namespace: istio-ambient-grpc
   labels:
     app: http-server
     version: v1
-    benchmark: baseline
+    benchmark: ambient
 spec:
   replicas: 1
   selector:
@@ -31,10 +32,9 @@ spec:
       labels:
         app: http-server
         version: v1
-        benchmark: baseline
+        benchmark: ambient
       annotations:
         sidecar.istio.io/inject: "false"
-        linkerd.io/inject: disabled
     spec:
       nodeSelector:
         benchmark-role: server
@@ -78,10 +78,10 @@ apiVersion: v1
 kind: Service
 metadata:
   name: http-server
-  namespace: baseline-grpc
+  namespace: istio-ambient-grpc
   labels:
     app: http-server
-    benchmark: baseline
+    benchmark: ambient
 spec:
   type: ClusterIP
   selector:

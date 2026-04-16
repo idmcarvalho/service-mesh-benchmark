@@ -1,198 +1,125 @@
 #!/bin/bash
 set -e
 
-# gRPC Load Test Script using ghz
-# Reads configuration from environment variables and outputs JSON results
+# gRPC Load Test Script using Fortio (via kubectl exec)
+# Runs Fortio's built-in gRPC load generator from inside the cluster so eBPF
+# socket probes capture the traffic. Consistent toolchain with HTTP benchmarks.
+#
+# Two test phases:
+#   Phase 1 — Standard concurrency sweep (same as HTTP: 10/50/100 connections)
+#   Phase 2 — Streams-per-connection sweep (1/5/10 streams @ fixed 10 connections)
+#             Captures gRPC multiplexing behaviour invisible to HTTP/1.1 benchmarks.
 
 # Configuration from environment variables
 MESH_TYPE="${MESH_TYPE:-baseline}"
 NAMESPACE="${NAMESPACE:-default}"
 TEST_DURATION="${TEST_DURATION:-60}"
 CONCURRENT_CONNECTIONS="${CONCURRENT_CONNECTIONS:-50}"
-SERVICE_URL="${SERVICE_URL:-}"
-PROTO_FILE="${PROTO_FILE:-}"
-CALL_METHOD="${CALL_METHOD:-}"
 RESULTS_DIR="${RESULTS_DIR:-./results}"
 
-# Generate timestamp and output file
+# Fortio gRPC ping target (host:port, no scheme)
+GRPC_TARGET="${GRPC_TARGET:-http-server:8079}"
+
+# Generate timestamp
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-OUTPUT_FILE="${RESULTS_DIR}/${MESH_TYPE}_grpc_${TIMESTAMP}.json"
 
 echo "========================================="
-echo "gRPC Load Test"
+echo "gRPC Load Test (Fortio via kubectl exec)"
 echo "========================================="
-echo "Mesh Type: $MESH_TYPE"
-echo "Namespace: $NAMESPACE"
-echo "Duration: ${TEST_DURATION}s"
+echo "Mesh Type:   $MESH_TYPE"
+echo "Namespace:   $NAMESPACE"
+echo "Duration:    ${TEST_DURATION}s"
 echo "Connections: $CONCURRENT_CONNECTIONS"
-echo "Service URL: $SERVICE_URL"
-echo "Output: $OUTPUT_FILE"
+echo "gRPC Target: $GRPC_TARGET"
+echo "Output dir:  $RESULTS_DIR"
 echo "========================================="
 
-# Ensure results directory exists
 mkdir -p "$RESULTS_DIR"
 
-# Determine service URL if not provided
-if [ -z "$SERVICE_URL" ]; then
-    echo "ERROR: SERVICE_URL environment variable is required"
-    echo "Example: SERVICE_URL=my-service.${NAMESPACE}.svc.cluster.local:9000"
-    exit 1
-fi
+# ----------------------------------------------------------------
+# Helper: run one Fortio gRPC benchmark and annotate the JSON
+# ----------------------------------------------------------------
+run_grpc_trial() {
+    local LABEL=$1          # e.g. "grpc_50c" or "grpc_streams_5s"
+    local CONNECTIONS=$2
+    local STREAMS=$3        # streams per connection (Fortio -grpc-streams)
+    local OUTPUT_FILE="${RESULTS_DIR}/${MESH_TYPE}_${LABEL}_${TIMESTAMP}.json"
+    local STDERR_LOG="${OUTPUT_FILE%.json}_stderr.log"
 
-# Check if ghz is available
-if ! command -v ghz &> /dev/null; then
-    echo "WARNING: ghz is not installed"
-    echo "Install with: go install github.com/bojand/ghz/cmd/ghz@latest"
-    echo "Creating stub result file..."
+    echo "  Running: $LABEL (c=${CONNECTIONS} streams=${STREAMS}) -> $GRPC_TARGET"
 
-    # Create stub result file for testing
-    cat > "$OUTPUT_FILE" << EOF
-{
-  "test_type": "grpc",
-  "mesh_type": "$MESH_TYPE",
-  "namespace": "$NAMESPACE",
-  "timestamp": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
-  "status": "skipped",
-  "message": "ghz not installed - test skipped",
-  "configuration": {
-    "duration_seconds": $TEST_DURATION,
-    "concurrent_connections": $CONCURRENT_CONNECTIONS,
-    "service_url": "$SERVICE_URL"
-  }
-}
-EOF
-    echo "Stub result created at: $OUTPUT_FILE"
-    exit 0
-fi
+    kubectl exec "fortio-client" -n "$NAMESPACE" -- \
+        fortio load \
+        -grpc \
+        -grpc-ping-delay 0 \
+        -s "$STREAMS" \
+        -c "$CONNECTIONS" \
+        -qps 0 \
+        -t "${TEST_DURATION}s" \
+        -json - \
+        "$GRPC_TARGET" \
+        > "$OUTPUT_FILE" \
+        2> "$STDERR_LOG"
 
-# For now, create a working result with dummy gRPC call
-# In production, you would specify proto file and method
-echo "Running gRPC load test..."
+    if [ ! -s "$OUTPUT_FILE" ]; then
+        echo "  WARNING: empty output for $LABEL" >&2
+        return 1
+    fi
+    if ! python3 -m json.tool "$OUTPUT_FILE" > /dev/null 2>&1; then
+        echo "  WARNING: invalid JSON for $LABEL" >&2
+        mv "$OUTPUT_FILE" "${OUTPUT_FILE}.corrupted.log"
+        return 1
+    fi
 
-# Create temporary file for ghz output
-GHZ_OUTPUT=$(mktemp)
+    # Annotate with benchmark metadata
+    local CURRENT_TIME
+    CURRENT_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    python3 - <<PYEOF
+import json
+with open("$OUTPUT_FILE") as f:
+    result = json.load(f)
+result["test_type"] = "grpc"
+result["mesh_type"] = "$MESH_TYPE"
+result["namespace"] = "$NAMESPACE"
+result["benchmark_timestamp"] = "$CURRENT_TIME"
+result.setdefault("configuration", {}).update({
+    "grpc_target": "$GRPC_TARGET",
+    "concurrent_connections": int("$CONNECTIONS"),
+    "streams_per_connection": int("$STREAMS"),
+    "duration_seconds": int("$TEST_DURATION"),
+})
+with open("$OUTPUT_FILE", "w") as f:
+    json.dump(result, f, indent=2)
+PYEOF
 
-# Determine proto and call parameters
-if [ -z "$CALL_METHOD" ]; then
-    echo "WARNING: CALL_METHOD not specified. Using health check as default."
-    CALL_METHOD="grpc.health.v1.Health/Check"
-fi
-
-# Run ghz benchmark
-# Note: This assumes a health check endpoint. Customize for your services.
-ghz --insecure \
-    --proto=/dev/null \
-    --call="$CALL_METHOD" \
-    --duration="${TEST_DURATION}s" \
-    --connections="$CONCURRENT_CONNECTIONS" \
-    --format=json \
-    "$SERVICE_URL" > "$GHZ_OUTPUT" 2>&1 || {
-
-    echo "WARNING: ghz command failed (possibly no proto file or service unavailable)"
-    echo "Creating placeholder result..."
-
-    # Create placeholder result
-    cat > "$OUTPUT_FILE" << EOF
-{
-  "test_type": "grpc",
-  "mesh_type": "$MESH_TYPE",
-  "namespace": "$NAMESPACE",
-  "timestamp": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
-  "status": "unavailable",
-  "message": "gRPC service not available or proto file not provided",
-  "configuration": {
-    "duration_seconds": $TEST_DURATION,
-    "concurrent_connections": $CONCURRENT_CONNECTIONS,
-    "service_url": "$SERVICE_URL",
-    "call_method": "$CALL_METHOD"
-  },
-  "metrics": {
-    "latency": {
-      "avg": "N/A",
-      "p50": "N/A",
-      "p95": "N/A",
-      "p99": "N/A"
-    },
-    "throughput": {
-      "requests_per_second": "N/A"
-    },
-    "requests": {
-      "total": 0,
-      "success": 0,
-      "errors": 0
-    }
-  }
-}
-EOF
-
-    rm -f "$GHZ_OUTPUT"
-    echo "Placeholder result created at: $OUTPUT_FILE"
-    exit 0
+    echo "  OK $LABEL -> $OUTPUT_FILE"
 }
 
-echo "Load test completed. Processing results..."
+# ----------------------------------------------------------------
+# Phase 1: Standard concurrency sweep (mirrors HTTP benchmark)
+# ----------------------------------------------------------------
+echo ""
+echo "Phase 1: Concurrency sweep (streams=1)"
+echo "----------------------------------------------------------------"
+run_grpc_trial "grpc_${CONCURRENT_CONNECTIONS}c" "$CONCURRENT_CONNECTIONS" 1
+sleep 3
 
-# ghz already outputs JSON, so we can use it directly
-# But we'll wrap it in our standard format
-GHZ_RESULT=$(cat "$GHZ_OUTPUT")
+# ----------------------------------------------------------------
+# Phase 2: Streams-per-connection sweep at fixed 10 connections
+# Reveals how multiplexing interacts with each mesh's data plane
+# ----------------------------------------------------------------
+echo ""
+echo "Phase 2: Streams-per-connection sweep (connections=10)"
+echo "----------------------------------------------------------------"
+for STREAMS in 1 5 10; do
+    run_grpc_trial "grpc_streams_${STREAMS}s" 10 "$STREAMS"
+    sleep 3
+done
 
-# Extract key metrics from ghz JSON output
-TOTAL_REQUESTS=$(echo "$GHZ_RESULT" | jq -r '.count // 0')
-AVG_LATENCY=$(echo "$GHZ_RESULT" | jq -r '.average // 0')
-P50_LATENCY=$(echo "$GHZ_RESULT" | jq -r '.latencyDistribution[] | select(.percentage == 50) | .latency // "N/A"')
-P95_LATENCY=$(echo "$GHZ_RESULT" | jq -r '.latencyDistribution[] | select(.percentage == 95) | .latency // "N/A"')
-P99_LATENCY=$(echo "$GHZ_RESULT" | jq -r '.latencyDistribution[] | select(.percentage == 99) | .latency // "N/A"')
-RPS=$(echo "$GHZ_RESULT" | jq -r '.rps // 0')
-SUCCESS=$(echo "$GHZ_RESULT" | jq -r '.statusCodeDistribution."0" // 0')
-ERRORS=$(echo "$GHZ_RESULT" | jq -r '.errors // 0')
-
-# Create standardized JSON output
-cat > "$OUTPUT_FILE" << EOF
-{
-  "test_type": "grpc",
-  "mesh_type": "$MESH_TYPE",
-  "namespace": "$NAMESPACE",
-  "timestamp": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
-  "configuration": {
-    "duration_seconds": $TEST_DURATION,
-    "concurrent_connections": $CONCURRENT_CONNECTIONS,
-    "service_url": "$SERVICE_URL",
-    "call_method": "$CALL_METHOD"
-  },
-  "metrics": {
-    "latency": {
-      "avg": $AVG_LATENCY,
-      "p50": "$P50_LATENCY",
-      "p95": "$P95_LATENCY",
-      "p99": "$P99_LATENCY"
-    },
-    "throughput": {
-      "requests_per_second": $RPS
-    },
-    "requests": {
-      "total": $TOTAL_REQUESTS,
-      "success": $SUCCESS,
-      "errors": $ERRORS
-    }
-  },
-  "ghz_output": $GHZ_RESULT
-}
-EOF
-
-# Clean up
-rm -f "$GHZ_OUTPUT"
-
+echo ""
 echo "========================================="
-echo "Results saved to: $OUTPUT_FILE"
-echo "========================================="
-echo "Summary:"
-echo "  Total Requests: $TOTAL_REQUESTS"
-echo "  Requests/sec: $RPS"
-echo "  Avg Latency: ${AVG_LATENCY}ns"
-echo "  P95 Latency: $P95_LATENCY"
-echo "  P99 Latency: $P99_LATENCY"
-echo "  Success: $SUCCESS"
-echo "  Errors: $ERRORS"
+echo "gRPC tests complete."
+echo "Results: $RESULTS_DIR"
 echo "========================================="
 
 exit 0

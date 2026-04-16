@@ -1,26 +1,25 @@
-# Baseline gRPC Service for 4-Way Benchmark
-# This workload runs WITHOUT any service mesh to establish gRPC performance baselines
-# Uses Fortio's built-in gRPC server (consistent toolchain with HTTP benchmarks)
+# Cilium L7 (Per-Node Envoy) gRPC Service for 4-Way Benchmark
+# Forces Cilium's per-node Envoy into the datapath via CiliumNetworkPolicy L7 gRPC rules
+# Traffic path: client -> eBPF -> per-node Envoy (gRPC inspect) -> backend
 ---
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: baseline-grpc
+  name: cilium-l7-grpc
   labels:
-    benchmark: baseline
+    benchmark: cilium-l7
     workload-type: grpc
     istio-injection: disabled
-    linkerd.io/inject: disabled
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: http-server
-  namespace: baseline-grpc
+  namespace: cilium-l7-grpc
   labels:
     app: http-server
     version: v1
-    benchmark: baseline
+    benchmark: cilium-l7
 spec:
   replicas: 1
   selector:
@@ -31,10 +30,9 @@ spec:
       labels:
         app: http-server
         version: v1
-        benchmark: baseline
+        benchmark: cilium-l7
       annotations:
         sidecar.istio.io/inject: "false"
-        linkerd.io/inject: disabled
     spec:
       nodeSelector:
         benchmark-role: server
@@ -78,10 +76,10 @@ apiVersion: v1
 kind: Service
 metadata:
   name: http-server
-  namespace: baseline-grpc
+  namespace: cilium-l7-grpc
   labels:
     app: http-server
-    benchmark: baseline
+    benchmark: cilium-l7
 spec:
   type: ClusterIP
   selector:
@@ -96,3 +94,29 @@ spec:
     port: 8080
     targetPort: 8080
     protocol: TCP
+---
+# CiliumNetworkPolicy with L7 gRPC rules
+# Cilium's Envoy supports gRPC method-level policy via HTTP/2 frame inspection
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: http-server-l7-grpc
+  namespace: cilium-l7-grpc
+spec:
+  endpointSelector:
+    matchLabels:
+      app: http-server
+  ingress:
+  - fromEndpoints:
+    - {}
+    toPorts:
+    - ports:
+      - port: "8079"
+        protocol: TCP
+      rules:
+        # gRPC uses HTTP/2 — Cilium matches gRPC methods as HTTP/2 paths
+        http:
+        - method: POST
+          path: /fortio.Ping/Ping
+        - method: POST
+          path: ".*"
