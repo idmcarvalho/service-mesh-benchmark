@@ -77,6 +77,18 @@ pub fn extract_connection_key(sock_ptr: *const sock) -> Result<ConnectionKey, i6
         return Err(-2); // Unsupported address family
     }
 
+    // TODO(http2/grpc): This probe tracks connections at the TCP 4-tuple level, which
+    // works correctly for HTTP/1.1 (one request per connection) but under-counts for
+    // HTTP/2 and gRPC (many streams per connection). To get per-stream latency for h2c
+    // and gRPC workloads, parse the HTTP/2 client preface at the payload level:
+    //   Magic bytes: 0x50 0x52 0x49 0x20 0x2A 0x20 0x48 0x54 0x54 0x50 0x2F 0x32
+    //                0x2E 0x30 0x0D 0x0A 0x0D 0x0A 0x53 0x4D 0x0D 0x0A 0x0D 0x0A
+    //   ("PRI * HTTP/2.0\r\n\rSM\r\n\r\n" — 24 bytes)
+    // Then use STREAM_ID from the HEADERS frame (bytes 6-8 of each HTTP/2 frame) as
+    // the correlation key instead of the TCP 4-tuple alone. Requires a ringbuf map
+    // keyed on (saddr, daddr, sport, dport, stream_id) and hooking tcp_recvmsg / sendmsg
+    // to read the payload. See appProtocol=h2c workloads in workloads/kubernetes/.
+
     // Create connection key
     // Note: IP addresses are already in network byte order
     // Source port needs to be converted to network byte order

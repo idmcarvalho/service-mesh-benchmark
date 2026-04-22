@@ -181,6 +181,60 @@ run_fortio_benchmark() {
     validate_json "$OUTPUT_FILE" "${SCENARIO}_${CONNECTIONS}c_run${TRIAL}"
 }
 
+run_fortio_h2c_benchmark() {
+    local SCENARIO=$1
+    local NAMESPACE=$2
+    local TARGET_URL=$3
+    local CONNECTIONS=$4
+    local TRIAL=$5
+    local OUTPUT_FILE="$RESULTS_DIR/h2c_${SCENARIO}_${CONNECTIONS}c_run${TRIAL}.json"
+
+    # Convert http:// to h2c:// for cleartext HTTP/2
+    local H2C_URL="${TARGET_URL/http:\/\//h2c://}"
+
+    echo "  Running: h2c/$SCENARIO @ ${CONNECTIONS}c trial ${TRIAL}/${TRIALS} -> $H2C_URL"
+
+    kubectl exec "fortio-client" -n "$NAMESPACE" -- \
+        fortio load \
+        -h2 \
+        -c "$CONNECTIONS" \
+        -qps "$QPS" \
+        -t "${DURATION}s" \
+        -json - \
+        "$H2C_URL" \
+        > "$OUTPUT_FILE" \
+        2> "$RESULTS_DIR/h2c_${SCENARIO}_${CONNECTIONS}c_run${TRIAL}_stderr.log"
+
+    validate_json "$OUTPUT_FILE" "h2c_${SCENARIO}_${CONNECTIONS}c_run${TRIAL}"
+}
+
+run_fortio_grpc_benchmark() {
+    local SCENARIO=$1
+    local NAMESPACE=$2
+    local GRPC_TARGET=$3   # host:port (no scheme)
+    local CONNECTIONS=$4
+    local STREAMS=$5
+    local TRIAL=$6
+    local OUTPUT_FILE="$RESULTS_DIR/grpc_${SCENARIO}_${CONNECTIONS}c_${STREAMS}s_run${TRIAL}.json"
+
+    echo "  Running: grpc/$SCENARIO @ ${CONNECTIONS}c ${STREAMS}streams trial ${TRIAL}/${TRIALS} -> $GRPC_TARGET"
+
+    kubectl exec "fortio-client" -n "$NAMESPACE" -- \
+        fortio load \
+        -grpc \
+        -grpc-ping-delay 0 \
+        -s "$STREAMS" \
+        -c "$CONNECTIONS" \
+        -qps "$QPS" \
+        -t "${DURATION}s" \
+        -json - \
+        "$GRPC_TARGET" \
+        > "$OUTPUT_FILE" \
+        2> "$RESULTS_DIR/grpc_${SCENARIO}_${CONNECTIONS}c_${STREAMS}s_run${TRIAL}_stderr.log"
+
+    validate_json "$OUTPUT_FILE" "grpc_${SCENARIO}_${CONNECTIONS}c_${STREAMS}s_run${TRIAL}"
+}
+
 run_warmup() {
     local SCENARIO=$1
     local NAMESPACE=$2
@@ -326,13 +380,129 @@ echo "----------------------------------------------------------------"
 collect_infrastructure_metrics
 
 # ================================================================
-# STEP 5: Cleanup
+# STEP 5: HTTP/2 (h2c) benchmarks
+# ================================================================
+H2C_SCENARIO_NAMES=(baseline-h2c cilium-ebpf-h2c cilium-l7-h2c istio-sidecar-h2c istio-ambient-h2c)
+H2C_SCENARIO_NAMESPACES=(baseline-h2c cilium-h2c cilium-l7-h2c h2c-benchmark istio-ambient-h2c)
+# ALL h2c scenarios use identical URL — http:// prefix is converted to h2c:// by run_fortio_h2c_benchmark
+H2C_SCENARIO_URLS=(
+    "http://http-server:8080/"
+    "http://http-server:8080/"
+    "http://http-server:8080/"
+    "http://http-server:8080/"
+    "http://http-server:8080/"
+)
+
+H2C_TOTAL_RUNS=$(( ${#H2C_SCENARIO_NAMES[@]} * ${#CONCURRENCY_LEVELS[@]} * TRIALS ))
+echo ""
+echo "STEP 5: HTTP/2 (h2c) benchmarks (${#H2C_SCENARIO_NAMES[@]} scenarios x ${#CONCURRENCY_LEVELS[@]} concurrency x ${TRIALS} trials = ${H2C_TOTAL_RUNS} runs)"
+echo "================================================================"
+
+for i in "${!H2C_SCENARIO_NAMES[@]}"; do
+    deploy_fortio "${H2C_SCENARIO_NAMESPACES[$i]}"
+done
+sleep 5
+
+for i in "${!H2C_SCENARIO_NAMES[@]}"; do
+    SCENARIO="${H2C_SCENARIO_NAMES[$i]}"
+    NAMESPACE="${H2C_SCENARIO_NAMESPACES[$i]}"
+    TARGET_URL="${H2C_SCENARIO_URLS[$i]}"
+
+    echo ""
+    echo ">>> ${SCENARIO^^} namespace=$NAMESPACE"
+
+    # Warmup with h2c
+    H2C_WARMUP_URL="${TARGET_URL/http:\/\//h2c://}"
+    echo "  Warmup: h2c/$SCENARIO @ 100c for 10s (discarded)..."
+    kubectl exec "fortio-client" -n "$NAMESPACE" -- \
+        fortio load -h2 -c 100 -qps 0 -t 10s "$H2C_WARMUP_URL" > /dev/null 2>&1
+    sleep 5
+
+    for C in "${CONCURRENCY_LEVELS[@]}"; do
+        for T in $(seq 1 $TRIALS); do
+            run_fortio_h2c_benchmark "$SCENARIO" "$NAMESPACE" "$TARGET_URL" "$C" "$T"
+            sleep 5
+        done
+    done
+
+    collect_resource_metrics "$SCENARIO" "$NAMESPACE"
+done
+
+# ================================================================
+# STEP 6: gRPC benchmarks
+# ================================================================
+GRPC_SCENARIO_NAMES=(baseline-grpc cilium-ebpf-grpc cilium-l7-grpc istio-sidecar-grpc istio-ambient-grpc)
+GRPC_SCENARIO_NAMESPACES=(baseline-grpc cilium-grpc cilium-l7-grpc grpc-benchmark istio-ambient-grpc)
+# ALL gRPC scenarios use the same host:port pattern (no scheme — Fortio -grpc mode)
+GRPC_SCENARIO_TARGETS=(
+    "http-server:8079"
+    "http-server:8079"
+    "http-server:8079"
+    "http-server:8079"
+    "http-server:8079"
+)
+# Streams-per-connection values for Phase 2 multiplexing sweep
+GRPC_STREAMS_LEVELS=(1 5 10)
+
+GRPC_TOTAL_RUNS=$(( ${#GRPC_SCENARIO_NAMES[@]} * ${#CONCURRENCY_LEVELS[@]} * TRIALS + ${#GRPC_SCENARIO_NAMES[@]} * ${#GRPC_STREAMS_LEVELS[@]} * TRIALS ))
+echo ""
+echo "STEP 6: gRPC benchmarks (${#GRPC_SCENARIO_NAMES[@]} scenarios x ${#CONCURRENCY_LEVELS[@]} concurrency + streams sweep = ~${GRPC_TOTAL_RUNS} runs)"
+echo "================================================================"
+
+for i in "${!GRPC_SCENARIO_NAMES[@]}"; do
+    deploy_fortio "${GRPC_SCENARIO_NAMESPACES[$i]}"
+done
+sleep 5
+
+for i in "${!GRPC_SCENARIO_NAMES[@]}"; do
+    SCENARIO="${GRPC_SCENARIO_NAMES[$i]}"
+    NAMESPACE="${GRPC_SCENARIO_NAMESPACES[$i]}"
+    GRPC_TARGET="${GRPC_SCENARIO_TARGETS[$i]}"
+
+    echo ""
+    echo ">>> ${SCENARIO^^} namespace=$NAMESPACE"
+
+    # Warmup
+    echo "  Warmup: grpc/$SCENARIO @ 10c for 10s (discarded)..."
+    kubectl exec "fortio-client" -n "$NAMESPACE" -- \
+        fortio load -grpc -grpc-ping-delay 0 -s 1 -c 10 -qps 0 -t 10s "$GRPC_TARGET" > /dev/null 2>&1
+    sleep 5
+
+    # Phase 1: concurrency sweep (1 stream per connection)
+    echo "  Phase 1: concurrency sweep"
+    for C in "${CONCURRENCY_LEVELS[@]}"; do
+        for T in $(seq 1 $TRIALS); do
+            run_fortio_grpc_benchmark "$SCENARIO" "$NAMESPACE" "$GRPC_TARGET" "$C" 1 "$T"
+            sleep 5
+        done
+    done
+
+    # Phase 2: streams-per-connection sweep (fixed 10 connections)
+    echo "  Phase 2: streams-per-connection sweep"
+    for S in "${GRPC_STREAMS_LEVELS[@]}"; do
+        for T in $(seq 1 $TRIALS); do
+            run_fortio_grpc_benchmark "$SCENARIO" "$NAMESPACE" "$GRPC_TARGET" 10 "$S" "$T"
+            sleep 5
+        done
+    done
+
+    collect_resource_metrics "$SCENARIO" "$NAMESPACE"
+done
+
+# ================================================================
+# STEP 7: Cleanup
 # ================================================================
 echo ""
-echo "STEP 5: Cleanup fortio clients"
+echo "STEP 7: Cleanup fortio clients"
 echo "----------------------------------------------------------------"
 for i in "${!SCENARIO_NAMES[@]}"; do
     kubectl delete pod fortio-client -n "${SCENARIO_NAMESPACES[$i]}" --ignore-not-found || true
+done
+for i in "${!H2C_SCENARIO_NAMESPACES[@]}"; do
+    kubectl delete pod fortio-client -n "${H2C_SCENARIO_NAMESPACES[$i]}" --ignore-not-found || true
+done
+for i in "${!GRPC_SCENARIO_NAMESPACES[@]}"; do
+    kubectl delete pod fortio-client -n "${GRPC_SCENARIO_NAMESPACES[$i]}" --ignore-not-found || true
 done
 
 # ================================================================
@@ -349,7 +519,8 @@ ls -lh "$RESULTS_DIR"/bench_*.json 2>/dev/null || echo "  No benchmark JSON file
 echo ""
 EXPECTED=$(( ${#SCENARIO_NAMES[@]} * ${#CONCURRENCY_LEVELS[@]} * TRIALS ))
 ACTUAL=$(ls "$RESULTS_DIR"/bench_*.json 2>/dev/null | wc -l)
-echo "Expected: $EXPECTED benchmark files (${#SCENARIO_NAMES[@]} scenarios x ${#CONCURRENCY_LEVELS[@]} concurrency x ${TRIALS} trials)"
+echo "Expected: $EXPECTED HTTP/1.1 benchmark files (${#SCENARIO_NAMES[@]} scenarios x ${#CONCURRENCY_LEVELS[@]} concurrency x ${TRIALS} trials)"
+echo "         (h2c and gRPC results are prefixed h2c_/grpc_ and counted separately)"
 echo "Actual:   $ACTUAL benchmark files"
 
 if [ "$ERRORS" -gt 0 ]; then

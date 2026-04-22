@@ -1,26 +1,26 @@
-# gRPC Service for 4-Way Benchmark (Istio Sidecar Mode)
+# HTTP/2 (h2c) Service for 4-Way Benchmark (Istio Sidecar Mode)
 # This workload runs WITH Istio sidecar injection enabled
-# Uses Fortio's built-in gRPC server/client (consistent toolchain with HTTP benchmarks)
-# Traffic path: client [sidecar] -> service:8079 -> [sidecar] backend fortio server
+# Traffic path: client [sidecar] -> service -> [sidecar] backend fortio server
+# appProtocol: h2c signals Istio to use HTTP/2 for the backend connection
 ---
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: grpc-benchmark
+  name: h2c-benchmark
   labels:
-    benchmark: mesh
-    workload-type: grpc
+    benchmark: h2c
+    workload-type: http2
     istio-injection: enabled
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: http-server
-  namespace: grpc-benchmark
+  namespace: h2c-benchmark
   labels:
     app: http-server
     version: v1
-    benchmark: mesh
+    benchmark: h2c
 spec:
   replicas: 1
   selector:
@@ -31,7 +31,7 @@ spec:
       labels:
         app: http-server
         version: v1
-        benchmark: mesh
+        benchmark: h2c
       annotations:
         sidecar.istio.io/inject: "true"
         proxy.istio.io/config: |
@@ -42,14 +42,10 @@ spec:
       containers:
       - name: fortio
         image: fortio/fortio:latest
-        # Fortio serves both gRPC (8079) and HTTP (8080) from a single process
-        args: ["server", "-grpc-port", "8079", "-http-port", "8080"]
+        args: ["server", "-http-port", "8080"]
         ports:
-        - containerPort: 8079
-          name: grpc
-          protocol: TCP
         - containerPort: 8080
-          name: http
+          name: h2c
           protocol: TCP
         resources:
           requests:
@@ -80,7 +76,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: http-server
-  namespace: grpc-benchmark
+  namespace: h2c-benchmark
   labels:
     app: http-server
 ---
@@ -88,49 +84,48 @@ apiVersion: v1
 kind: Service
 metadata:
   name: http-server
-  namespace: grpc-benchmark
+  namespace: h2c-benchmark
   labels:
     app: http-server
-    benchmark: mesh
+    benchmark: h2c
+  annotations:
+    # Signal Istio that the backend speaks h2c so the sidecar uses HTTP/2 upstream
+    traffic.istio.io/appProtocol: h2
 spec:
   type: ClusterIP
   selector:
     app: http-server
   ports:
-  - name: grpc
-    port: 8079
-    targetPort: 8079
-    protocol: TCP
-    appProtocol: grpc
-  - name: http
+  - name: h2c
     port: 8080
     targetPort: 8080
     protocol: TCP
+    appProtocol: h2c
 ---
-# Istio DestinationRule for gRPC traffic policy
+# Istio DestinationRule: disable h2UpgradePolicy (we enforce h2c explicitly)
 apiVersion: networking.istio.io/v1beta1
 kind: DestinationRule
 metadata:
   name: http-server
-  namespace: grpc-benchmark
+  namespace: h2c-benchmark
 spec:
-  host: http-server.grpc-benchmark.svc.cluster.local
+  host: http-server.h2c-benchmark.svc.cluster.local
   trafficPolicy:
     connectionPool:
       tcp:
         maxConnections: 1000
       http:
-        h2UpgradePolicy: UPGRADE
+        h2UpgradePolicy: DO_NOT_UPGRADE
         http2MaxRequests: 1000
     loadBalancer:
       simple: LEAST_REQUEST
 ---
-# Istio VirtualService for gRPC routing
+# Istio VirtualService for routing
 apiVersion: networking.istio.io/v1beta1
 kind: VirtualService
 metadata:
   name: http-server
-  namespace: grpc-benchmark
+  namespace: h2c-benchmark
 spec:
   hosts:
   - http-server
@@ -139,9 +134,8 @@ spec:
     - destination:
         host: http-server
         port:
-          number: 8079
+          number: 8080
     timeout: 30s
     retries:
       attempts: 3
       perTryTimeout: 10s
-      retryOn: connect-failure,refused-stream,unavailable,cancelled,resource-exhausted

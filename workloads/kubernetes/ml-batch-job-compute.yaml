@@ -1,5 +1,12 @@
-# ML Batch Job for Compute-Intensive Workload Testing
-# Tests service mesh handling of batch processing and high CPU workloads
+# ML Batch Job for Compute-Intensive Workload Testing (COMPUTE BASELINE ONLY)
+#
+# NOTE: This is a single-pod compute workload (RandomForest training). It generates
+# no east-west network traffic, so service mesh sidecars/ztunnel do not intercept it.
+# It is kept as a CPU-overhead reference: compare pod CPU usage with/without sidecar
+# injection to isolate the cost of having an idle proxy present during heavy computation.
+#
+# For network-facing ML benchmarks (real mesh interception), use ml-inference-service.yaml
+# which splits inference into a server pod + client pod with HTTP traffic between them.
 ---
 apiVersion: v1
 kind: Namespace

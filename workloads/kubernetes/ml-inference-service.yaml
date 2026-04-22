@@ -1,0 +1,204 @@
+# ML Inference Service for 4-Way Benchmark (Istio Sidecar Mode)
+# Client/server architecture: server runs sklearn inference, client sends HTTP POST batches.
+# This creates real east-west HTTP traffic that mesh sidecars intercept — unlike the
+# compute-only ml-batch-job-compute.yaml which has no network traffic.
+#
+# Server: fits a RandomForest on startup, then serves POST /predict with feature batches.
+# Client: sleep pod used as Fortio launch point via kubectl exec.
+# Load tool: Fortio -payload-size (variable payload sweep for large feature vectors).
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ml-benchmark
+  labels:
+    benchmark: ml-inference
+    workload-type: ml_inference
+    istio-injection: enabled
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ml-server-script
+  namespace: ml-benchmark
+data:
+  server.py: |
+    #!/usr/bin/env python3
+    """
+    ML inference server for service mesh benchmarking.
+    Fits a RandomForest at startup, then serves POST /predict requests.
+    Accepts variable batch sizes to test mesh overhead at different payload sizes.
+    """
+    import json
+    import os
+    import time
+    import http.server
+    import numpy as np
+    from sklearn.ensemble import RandomForestClassifier
+    from sklearn.datasets import make_classification
+
+    N_FEATURES = int(os.environ.get("N_FEATURES", "20"))
+    N_ESTIMATORS = int(os.environ.get("N_ESTIMATORS", "100"))
+
+    print(f"Fitting RandomForest (estimators={N_ESTIMATORS}, features={N_FEATURES})...")
+    X, y = make_classification(n_samples=2000, n_features=N_FEATURES,
+                               n_informative=15, n_redundant=5, random_state=42)
+    MODEL = RandomForestClassifier(n_estimators=N_ESTIMATORS, random_state=42)
+    MODEL.fit(X, y)
+    print("Model ready.")
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def log_message(self, fmt, *args):
+            pass  # suppress per-request logs to reduce I/O noise
+
+        def do_GET(self):
+            if self.path in ("/health", "/fortio/"):
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(b"OK")
+            else:
+                self.send_response(404)
+                self.end_headers()
+
+        def do_POST(self):
+            if self.path != "/predict":
+                self.send_response(404)
+                self.end_headers()
+                return
+            length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(length)
+            t0 = time.perf_counter()
+            try:
+                data = json.loads(body)
+                features = np.array(data["features"], dtype=np.float32)
+                if features.ndim == 1:
+                    features = features.reshape(1, -1)
+                predictions = MODEL.predict(features).tolist()
+                inference_ms = (time.perf_counter() - t0) * 1000
+                resp = json.dumps({
+                    "predictions": predictions,
+                    "batch_size": len(predictions),
+                    "inference_time_ms": round(inference_ms, 3),
+                    "hostname": os.environ.get("HOSTNAME", "unknown"),
+                }).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(resp)))
+                self.end_headers()
+                self.wfile.write(resp)
+            except Exception as e:
+                err = json.dumps({"error": str(e)}).encode()
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(err)))
+                self.end_headers()
+                self.wfile.write(err)
+
+    server = http.server.HTTPServer(("0.0.0.0", 8080), Handler)
+    print("Listening on :8080")
+    server.serve_forever()
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: http-server
+  namespace: ml-benchmark
+  labels:
+    app: http-server
+    version: v1
+    benchmark: ml-inference
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: http-server
+  template:
+    metadata:
+      labels:
+        app: http-server
+        version: v1
+        benchmark: ml-inference
+      annotations:
+        sidecar.istio.io/inject: "true"
+        proxy.istio.io/config: |
+          holdApplicationUntilProxyStarts: true
+    spec:
+      nodeSelector:
+        benchmark-role: server
+      initContainers:
+      - name: install-deps
+        image: python:3.11-slim
+        command: ["pip", "install", "--quiet", "--target=/deps", "scikit-learn", "numpy"]
+        volumeMounts:
+        - name: deps
+          mountPath: /deps
+      containers:
+      - name: inference-server
+        image: python:3.11-slim
+        command: ["python3", "/app/server.py"]
+        env:
+        - name: PYTHONPATH
+          value: "/deps"
+        - name: N_FEATURES
+          value: "20"
+        - name: N_ESTIMATORS
+          value: "100"
+        ports:
+        - containerPort: 8080
+          name: http
+          protocol: TCP
+        resources:
+          requests:
+            cpu: 200m
+            memory: 256Mi
+          limits:
+            cpu: 1000m
+            memory: 512Mi
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 60
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 45
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        volumeMounts:
+        - name: app-script
+          mountPath: /app
+        - name: deps
+          mountPath: /deps
+      volumes:
+      - name: app-script
+        configMap:
+          name: ml-server-script
+          defaultMode: 0755
+      - name: deps
+        emptyDir: {}
+      terminationGracePeriodSeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: http-server
+  namespace: ml-benchmark
+  labels:
+    app: http-server
+    benchmark: ml-inference
+spec:
+  type: ClusterIP
+  selector:
+    app: http-server
+  ports:
+  - name: http
+    port: 8080
+    targetPort: 8080
+    protocol: TCP
+    appProtocol: http
